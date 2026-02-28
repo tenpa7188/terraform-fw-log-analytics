@@ -25,7 +25,7 @@
 - 背景: dev/prod差分をコードで分離する必要がある。
 - 目的: 環境ごとの設定切替を再現可能にする。
 - 作業内容: `envs/dev.tfvars` と `envs/prod.tfvars` を作成し、必須変数を定義する。
-- 受け入れ条件: `terraform plan -var-file=envs/dev.tfvars` が実行できる。
+- 受け入れ条件: `terraform plan -var-file="envs/dev.tfvars"` が実行できる。
 - 依存関係: Issue 03
 
 ## Issue 05: バケット命名ロジックを実装する
