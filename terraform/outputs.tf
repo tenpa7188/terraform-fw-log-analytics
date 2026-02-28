@@ -27,3 +27,8 @@ output "log_bucket_name" {
   description = "Generated S3 bucket name for firewall logs."
   value       = local.log_bucket_name
 }
+
+output "log_bucket_arn" {
+  description = "ARN of the firewall log S3 bucket."
+  value       = aws_s3_bucket.log_bucket.arn
+}
