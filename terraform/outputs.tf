@@ -22,3 +22,8 @@ output "common_tags" {
   description = "Merged common tags applied via provider default_tags."
   value       = local.common_tags
 }
+
+output "log_bucket_name" {
+  description = "Generated S3 bucket name for firewall logs."
+  value       = local.log_bucket_name
+}

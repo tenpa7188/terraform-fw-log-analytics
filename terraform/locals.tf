@@ -1,5 +1,6 @@
 locals {
   name_prefix = "${var.project}-${var.environment}"
+  log_bucket_name = "${local.name_prefix}-${random_id.bucket_suffix.hex}"
 
   common_tags = merge(
     {

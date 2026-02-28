@@ -1,2 +1,3 @@
-# Intentionally minimal for Issue 03.
-# Resource definitions are added in later issues (S3/Glue/Athena/IAM).
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
