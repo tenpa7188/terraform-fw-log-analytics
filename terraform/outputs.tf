@@ -32,3 +32,13 @@ output "log_bucket_arn" {
   description = "ARN of the firewall log S3 bucket."
   value       = aws_s3_bucket.log_bucket.arn
 }
+
+output "log_bucket_sse_algorithm" {
+  description = "Default server-side encryption algorithm for the firewall log bucket."
+  value       = local.log_bucket_sse_algorithm
+}
+
+output "log_bucket_kms_key_id" {
+  description = "KMS key identifier used when the firewall log bucket defaults to SSE-KMS."
+  value       = local.log_bucket_kms_key_id
+}
