@@ -238,8 +238,9 @@ terraform apply -var-file=envs/dev.tfvars
 ### S3ライフサイクル（現行値と拡張方針）
 - 既定保持期間: 365日（1年）
 - 拡張方針: Terraform変数で保持期間を管理し、最大1825日（5年）まで延長可能にする
-- 1年保持時の遷移例: 0-30日 `Standard`、31-180日 `Standard-IA`、181-365日 `Glacier Instant Retrieval`、366日以降削除
-- 5年保持時の遷移例: 0-30日 `Standard`、31-180日 `Standard-IA`、181-365日 `Glacier Instant Retrieval`、366-1825日 `Deep Archive`、1826日以降削除
+- `fortigate/` の現行ルール: 0-30日 `Standard`、31-365日 `Standard-IA`、366日以降削除
+- 設計意図: **1年分をAthenaで即時検索できることを優先**し、`Glacier` 系ストレージへ移行しない
+- 5年延長時の方針: 保持日数は変数で延長可能としつつ、1年超のアーカイブ階層は検索要件を確認したうえで別途設計する
 
 ### Athenaコスト最適化
 - 想定ログ量: 0.5-2GB/日（生ログ）
