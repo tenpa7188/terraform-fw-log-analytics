@@ -42,3 +42,8 @@ output "log_bucket_kms_key_id" {
   description = "KMS key identifier used when the firewall log bucket defaults to SSE-KMS."
   value       = local.log_bucket_kms_key_id
 }
+
+output "log_bucket_versioning_status" {
+  description = "Versioning status for the firewall log bucket."
+  value       = aws_s3_bucket_versioning.log_bucket.versioning_configuration[0].status
+}
