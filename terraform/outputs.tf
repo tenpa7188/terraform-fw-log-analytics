@@ -67,3 +67,13 @@ output "glue_database_name" {
   description = "Glue Data Catalog database name for Athena queries."
   value       = aws_glue_catalog_database.fw_log_analytics.name
 }
+
+output "glue_table_name" {
+  description = "Glue Data Catalog table name for firewall logs."
+  value       = aws_glue_catalog_table.fortigate_logs.name
+}
+
+output "glue_table_location" {
+  description = "S3 location referenced by the Glue firewall log table."
+  value       = "s3://${aws_s3_bucket.log_bucket.bucket}/fortigate/"
+}
