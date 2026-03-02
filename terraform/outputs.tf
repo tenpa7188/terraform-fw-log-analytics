@@ -62,3 +62,8 @@ output "athena_workgroup_name" {
   description = "Standard Athena workgroup name reserved for this project."
   value       = local.athena_workgroup_name
 }
+
+output "glue_database_name" {
+  description = "Glue Data Catalog database name for Athena queries."
+  value       = aws_glue_catalog_database.fw_log_analytics.name
+}
