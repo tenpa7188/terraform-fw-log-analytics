@@ -25,3 +25,27 @@ variable "additional_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "fortigate_retention_days" {
+  description = "Retention period in days for fortigate/ objects."
+  type        = number
+  default     = 365
+}
+
+variable "fortigate_noncurrent_retention_days" {
+  description = "Retention period in days for noncurrent versions under fortigate/."
+  type        = number
+  default     = 30
+}
+
+variable "athena_results_retention_days" {
+  description = "Retention period in days for athena-results/ objects."
+  type        = number
+  default     = 30
+}
+
+variable "athena_results_noncurrent_retention_days" {
+  description = "Retention period in days for noncurrent versions under athena-results/."
+  type        = number
+  default     = 7
+}

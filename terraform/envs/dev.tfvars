@@ -6,3 +6,8 @@ additional_tags = {
   service             = "fw-log-analytics"
   data_classification = "internal"
 }
+
+fortigate_retention_days                 = 365
+fortigate_noncurrent_retention_days      = 30
+athena_results_retention_days            = 30
+athena_results_noncurrent_retention_days = 7

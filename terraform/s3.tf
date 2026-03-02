@@ -70,3 +70,46 @@ resource "aws_s3_bucket_policy" "log_bucket" {
   bucket = aws_s3_bucket.log_bucket.id
   policy = data.aws_iam_policy_document.log_bucket_tls_enforcement.json
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "log_bucket" {
+  bucket = aws_s3_bucket.log_bucket.id
+
+  rule {
+    id     = "fortigate-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = "fortigate/"
+    }
+
+    transition {
+      days          = 30
+      storage_class = "STANDARD_IA"
+    }
+
+    expiration {
+      days = var.fortigate_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.fortigate_noncurrent_retention_days
+    }
+  }
+
+  rule {
+    id     = "athena-results-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = "athena-results/"
+    }
+
+    expiration {
+      days = var.athena_results_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.athena_results_noncurrent_retention_days
+    }
+  }
+}
