@@ -47,3 +47,18 @@ output "log_bucket_versioning_status" {
   description = "Versioning status for the firewall log bucket."
   value       = aws_s3_bucket_versioning.log_bucket.versioning_configuration[0].status
 }
+
+output "athena_results_prefix" {
+  description = "Prefix used for Athena query result objects."
+  value       = local.athena_results_prefix
+}
+
+output "athena_results_location" {
+  description = "S3 location used for Athena query results."
+  value       = local.athena_results_location
+}
+
+output "athena_workgroup_name" {
+  description = "Standard Athena workgroup name reserved for this project."
+  value       = local.athena_workgroup_name
+}
