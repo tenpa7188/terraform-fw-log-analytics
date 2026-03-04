@@ -59,8 +59,23 @@ output "athena_results_location" {
 }
 
 output "athena_workgroup_name" {
-  description = "Standard Athena workgroup name reserved for this project."
-  value       = local.athena_workgroup_name
+  description = "Standard Athena workgroup name for this project."
+  value       = aws_athena_workgroup.fw_log_analytics.name
+}
+
+output "athena_workgroup_arn" {
+  description = "ARN of the standard Athena workgroup."
+  value       = aws_athena_workgroup.fw_log_analytics.arn
+}
+
+output "athena_workgroup_state" {
+  description = "Current state of the standard Athena workgroup."
+  value       = aws_athena_workgroup.fw_log_analytics.state
+}
+
+output "athena_bytes_scanned_cutoff_per_query" {
+  description = "Configured bytes scanned cutoff per Athena query."
+  value       = var.athena_bytes_scanned_cutoff_per_query
 }
 
 output "glue_database_name" {

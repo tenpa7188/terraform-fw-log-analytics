@@ -49,3 +49,9 @@ variable "athena_results_noncurrent_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "athena_bytes_scanned_cutoff_per_query" {
+  description = "Maximum bytes scanned per Athena query in the standard workgroup."
+  type        = number
+  default     = 10737418240
+}
