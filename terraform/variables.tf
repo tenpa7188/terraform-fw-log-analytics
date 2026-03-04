@@ -55,3 +55,21 @@ variable "athena_bytes_scanned_cutoff_per_query" {
   type        = number
   default     = 10737418240
 }
+
+variable "ingest_trusted_principal_arns" {
+  description = "Trusted principal ARNs allowed to assume the ingest role. If empty, account root ARN is used."
+  type        = list(string)
+  default     = []
+}
+
+variable "analyst_trusted_principal_arns" {
+  description = "Trusted principal ARNs allowed to assume the analyst role. If empty, account root ARN is used."
+  type        = list(string)
+  default     = []
+}
+
+variable "terraform_trusted_principal_arns" {
+  description = "Trusted principal ARNs allowed to assume the terraform role. If empty, account root ARN is used."
+  type        = list(string)
+  default     = []
+}

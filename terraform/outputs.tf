@@ -92,3 +92,33 @@ output "glue_table_location" {
   description = "S3 location referenced by the Glue firewall log table."
   value       = "s3://${aws_s3_bucket.log_bucket.bucket}/fortigate/"
 }
+
+output "iam_ingest_role_name" {
+  description = "IAM role name for log ingestion operations."
+  value       = aws_iam_role.ingest.name
+}
+
+output "iam_ingest_role_arn" {
+  description = "IAM role ARN for log ingestion operations."
+  value       = aws_iam_role.ingest.arn
+}
+
+output "iam_analyst_role_name" {
+  description = "IAM role name for Athena analyst operations."
+  value       = aws_iam_role.analyst.name
+}
+
+output "iam_analyst_role_arn" {
+  description = "IAM role ARN for Athena analyst operations."
+  value       = aws_iam_role.analyst.arn
+}
+
+output "iam_terraform_role_name" {
+  description = "IAM role name for Terraform infrastructure operations."
+  value       = aws_iam_role.terraform.name
+}
+
+output "iam_terraform_role_arn" {
+  description = "IAM role ARN for Terraform infrastructure operations."
+  value       = aws_iam_role.terraform.arn
+}
