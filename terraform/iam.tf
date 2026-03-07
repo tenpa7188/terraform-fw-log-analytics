@@ -98,9 +98,9 @@ resource "aws_iam_role" "analyst" {
 
 data "aws_iam_policy_document" "analyst_access" {
   statement {
-    sid      = "AllowStartQueryInStandardWorkgroup"
-    effect   = "Allow"
-    actions  = ["athena:StartQueryExecution"]
+    sid       = "AllowStartQueryInStandardWorkgroup"
+    effect    = "Allow"
+    actions   = ["athena:StartQueryExecution"]
     resources = ["*"]
 
     condition {
@@ -279,9 +279,9 @@ data "aws_iam_policy_document" "terraform_access" {
   }
 
   statement {
-    sid      = "AllowManageAthenaResourcesForProject"
-    effect   = "Allow"
-    actions  = ["athena:*"]
+    sid       = "AllowManageAthenaResourcesForProject"
+    effect    = "Allow"
+    actions   = ["athena:*"]
     resources = ["*"]
   }
 
