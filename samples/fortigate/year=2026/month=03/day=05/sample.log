@@ -1,0 +1,10 @@
+date=2026-03-05 time=09:00:01 srcip=192.0.2.10 dstip=198.51.100.20 srcport=51515 dstport=443 proto=tcp action=accept policyid=1001 devname=FGT01
+date=2026-03-05 time=09:01:12 srcip=192.0.2.10 dstip=198.51.100.21 srcport=51516 dstport=443 proto=tcp action=accept policyid=1001 devname=FGT01
+date=2026-03-05 time=09:03:45 srcip=203.0.113.30 dstip=198.51.100.20 srcport=53000 dstport=22 proto=tcp action=deny policyid=1002 devname=FGT01
+date=2026-03-05 time=09:05:09 srcip=198.51.100.50 dstip=203.0.113.80 srcport=60001 dstport=53 proto=udp action=accept policyid=1003 devname=FGT01
+date=2026-03-05 time=09:08:33 srcip=192.0.2.11 dstip=198.51.100.25 srcport=51520 dstport=80 proto=tcp action=deny policyid=1004 devname=FGT01
+date=2026-03-05 time=09:10:27 srcip=203.0.113.30 dstip=198.51.100.26 srcport=54000 dstport=3389 proto=tcp action=deny policyid=1002 devname=FGT01
+date=2026-03-05 time=09:12:58 srcip=198.51.100.50 dstip=203.0.113.81 srcport=60002 dstport=53 proto=udp action=accept policyid=1003 devname=FGT01
+date=2026-03-05 time=09:15:14 srcip=192.0.2.12 dstip=198.51.100.20 srcport=51530 dstport=443 proto=tcp action=accept policyid=1001 devname=FGT01
+date=2026-03-05 time=09:18:41 srcip=192.0.2.10 dstip=203.0.113.82 srcport=51540 dstport=8080 proto=tcp action=accept policyid=1005 devname=FGT01
+date=2026-03-05 time=09:22:05 srcip=203.0.113.31 dstip=198.51.100.27 srcport=55000 dstport=25 proto=tcp action=deny policyid=1006 devname=FGT01
