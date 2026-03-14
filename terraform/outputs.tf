@@ -103,6 +103,27 @@ output "iam_ingest_role_arn" {
   value       = aws_iam_role.ingest.arn
 }
 
+output "iam_ingest_user_name" {
+  description = "Dedicated IAM user name for assuming the ingest role."
+  value       = try(aws_iam_user.ingest[0].name, null)
+}
+
+output "iam_ingest_user_arn" {
+  description = "Dedicated IAM user ARN for assuming the ingest role."
+  value       = try(aws_iam_user.ingest[0].arn, null)
+}
+
+output "iam_ingest_user_access_key_id" {
+  description = "Access key ID for the dedicated ingest IAM user when access key creation is enabled."
+  value       = try(aws_iam_access_key.ingest[0].id, null)
+}
+
+output "iam_ingest_user_secret_access_key" {
+  description = "Secret access key for the dedicated ingest IAM user when access key creation is enabled."
+  value       = try(aws_iam_access_key.ingest[0].secret, null)
+  sensitive   = true
+}
+
 output "iam_analyst_role_name" {
   description = "IAM role name for Athena analyst operations."
   value       = aws_iam_role.analyst.name

@@ -5,7 +5,9 @@ data "aws_partition" "current" {}
 locals {
   account_root_principal_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
 
-  ingest_trusted_principal_arns = length(var.ingest_trusted_principal_arns) > 0 ? var.ingest_trusted_principal_arns : [
+  ingest_iam_user_name = "${local.name_prefix}-ingest-user"
+
+  ingest_trusted_principal_arns = length(concat(var.ingest_trusted_principal_arns, var.create_ingest_iam_user ? [aws_iam_user.ingest[0].arn] : [])) > 0 ? concat(var.ingest_trusted_principal_arns, var.create_ingest_iam_user ? [aws_iam_user.ingest[0].arn] : []) : [
     local.account_root_principal_arn
   ]
   analyst_trusted_principal_arns = length(var.analyst_trusted_principal_arns) > 0 ? var.analyst_trusted_principal_arns : [
@@ -304,6 +306,27 @@ data "aws_iam_policy_document" "terraform_access" {
       "iam:UpdateRole"
     ]
     resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-*"]
+  }
+
+  statement {
+    sid    = "AllowManageProjectUsers"
+    effect = "Allow"
+    actions = [
+      "iam:CreateAccessKey",
+      "iam:CreateUser",
+      "iam:DeleteAccessKey",
+      "iam:DeleteUser",
+      "iam:DeleteUserPolicy",
+      "iam:GetUser",
+      "iam:GetUserPolicy",
+      "iam:ListAccessKeys",
+      "iam:ListUserPolicies",
+      "iam:PutUserPolicy",
+      "iam:TagUser",
+      "iam:UntagUser",
+      "iam:UpdateUser"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:user/${local.name_prefix}-*"]
   }
 
   statement {

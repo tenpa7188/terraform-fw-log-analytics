@@ -62,6 +62,18 @@ variable "ingest_trusted_principal_arns" {
   default     = []
 }
 
+variable "create_ingest_iam_user" {
+  description = "Whether to create a dedicated IAM user for assuming the ingest role."
+  type        = bool
+  default     = false
+}
+
+variable "create_ingest_iam_access_key" {
+  description = "Whether to create an access key for the dedicated ingest IAM user. Enable only when a non-AWS host must use AWS CLI."
+  type        = bool
+  default     = false
+}
+
 variable "analyst_trusted_principal_arns" {
   description = "Trusted principal ARNs allowed to assume the analyst role. If empty, account root ARN is used."
   type        = list(string)
