@@ -1,0 +1,10 @@
+# Configuration file for upload-fortigate-logs.sh
+# Intended install path:
+#   /etc/default/fortigate-uploader
+
+BUCKET_NAME="fw-log-analytics-dev-xxxxxxxx"
+ROLE_ARN="arn:aws:iam::123456789012:role/fw-log-analytics-dev-ingest-role"
+
+# Uncomment only when the source identity must provide MFA to assume the role.
+# MFA_SERIAL_NUMBER="arn:aws:iam::123456789012:mfa/collector-user"
+# MFA_TOKEN_CODE="123456"
