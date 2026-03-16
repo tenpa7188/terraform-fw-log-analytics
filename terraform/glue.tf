@@ -26,7 +26,8 @@ resource "aws_glue_catalog_table" "fortigate_logs" {
       name                  = "fortigate-logs-regex-serde"
       serialization_library = "org.apache.hadoop.hive.serde2.RegexSerDe"
       parameters = {
-        "input.regex" = "^(?=(.*)$)date=([^ ]+)\\s+time=([^ ]+)\\s+srcip=([^ ]+)\\s+dstip=([^ ]+)(?:\\s+srcport=([^ ]+))?(?:\\s+dstport=([^ ]+))?(?:\\s+proto=([^ ]+))?(?:\\s+action=([^ ]+))?(?:\\s+policyid=([^ ]+))?(?:\\s+.*)?$"
+        # Capture the required FortiGate fields anywhere in a key=value log line.
+        "input.regex" = "^(?=(.*)$)(?=.*\\bdate=([^ ]+))(?=.*\\btime=([^ ]+))(?=.*\\bsrcip=([^ ]+))(?=.*\\bdstip=([^ ]+))(?:(?=.*\\bsrcport=([^ ]+)))?(?:(?=.*\\bdstport=([^ ]+)))?(?:(?=.*\\bproto=([^ ]+)))?(?:(?=.*\\baction=\\\"?([^\\\" ]+)\\\"?))?(?:(?=.*\\bpolicyid=([^ ]+)))?.*$"
       }
     }
 
