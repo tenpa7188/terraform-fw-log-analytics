@@ -2,8 +2,8 @@
 
 ## 1. 目的
 - FortiGate の traffic ログを Athena で再現性高く検索するための運用手順をまとめる。
-- ログ投入後の確認、パーティション追加、標準検索、一次切り分けを統一する。
-- **SQL の具体例は [sql-templates.md](sql-templates.md) を参照**し、この Runbook では運用フローと判断観点を定義する。
+- ログ投入後の確認、検索前チェック、一次切り分けを標準化する。
+- SQL の具体例は [sql-templates.md](sql-templates.md) を参照し、この Runbook では運用フローと判断観点を定義する。
 
 ## 2. 対象と前提
 - Glue Database: `fw_log_analytics`
@@ -21,21 +21,24 @@
 - 標準検索は [sql-templates.md](sql-templates.md) のテンプレートを使う。
 - 調査メモには、対象日付、検索条件、件数、使用した SQL を残す。
 
-## 4. 正常系の標準手順
+## 4. パーティション反映方針
 
-### 4.1 S3 にログがあることを確認する
-- 期待パス:
-  - `fortigate/year=YYYY/month=MM/day=DD/`
-- 確認観点:
-  - 日付ディレクトリが正しいか
-  - `.log.gz` ファイルが存在するか
-  - traffic ログが格納されているか
-
-### 4.2 パーティションを反映する
-- 日次で 1 パーティションだけ追加する場合は `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を優先する。
-- まとめて検出したい場合のみ `MSCK REPAIR TABLE` を使う。
+### 4.1 推奨運用
+- 推奨は **collector のアップロードスクリプトで Glue `batch-create-partition` を自動実行**する方式。
 - 理由:
-  - `ALTER TABLE` の方が対象を限定でき、意図しない広範囲スキャンを避けやすい。
+  - `ingest` ロールに Athena の SQL 実行権限を渡さずに済む。
+  - S3 へアップロードした直後に、その日付パーティションだけを登録できる。
+  - `ALTER TABLE` より責務分離が明確。
+
+### 4.2 自動反映の前提
+- `upload-fortigate-logs.sh` で `ENABLE_GLUE_PARTITION_ADD="true"` を設定する。
+
+### 4.3 手動反映のフォールバック
+- 自動反映が無効、または失敗時は `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` で手動追加する。
+- まとめて再検出したい場合のみ `MSCK REPAIR TABLE` を使う。
+- 理由:
+  - 手動時は対象日付を明示できる `ALTER TABLE` の方が安全。
+  - `MSCK REPAIR TABLE` は広範囲を検出するため、日次運用の常用には向かない。
 
 ```sql
 ALTER TABLE fw_log_analytics.fortigate_logs
@@ -48,16 +51,26 @@ LOCATION 's3://<log-bucket>/fortigate/year=2026/month=03/day=16/';
 MSCK REPAIR TABLE fw_log_analytics.fortigate_logs;
 ```
 
-### 4.3 パーティションが見えていることを確認する
+## 5. 正常系の標準手順
+
+### 5.1 S3 にログがあることを確認する
+- 期待パス:
+  - `fortigate/year=YYYY/month=MM/day=DD/`
+- 確認観点:
+  - 日付ディレクトリが正しいか
+  - `.log.gz` ファイルが存在するか
+  - traffic ログが格納されているか
+
+### 5.2 パーティションが見えていることを確認する
 ```sql
 SHOW PARTITIONS fw_log_analytics.fortigate_logs;
 ```
 
 - 確認観点:
-  - 追加した `year=YYYY/month=MM/day=DD` が表示されるか
+  - 対象の `year=YYYY/month=MM/day=DD` が表示されるか
   - 想定外の日付が混ざっていないか
 
-### 4.4 件数を確認する
+### 5.3 件数を確認する
 ```sql
 SELECT count(*) AS cnt
 FROM fw_log_analytics.fortigate_logs
@@ -70,7 +83,7 @@ WHERE year = '2026'
   - 0 件ではないか
   - 想定件数とかけ離れていないか
 
-### 4.5 標準 SQL で検索する
+### 5.4 標準 SQL で検索する
 - `srcip` 検索
 - `dstip` 検索
 - `srcip OR dstip` 横断検索
@@ -79,20 +92,20 @@ WHERE year = '2026'
 
 上記 SQL は [sql-templates.md](sql-templates.md) を使用する。
 
-## 5. 検索前チェックリスト
+## 6. 検索前チェックリスト
 - 対象日付は JST で整理できているか
 - S3 パスは `fortigate/year=YYYY/month=MM/day=DD/` になっているか
-- パーティションは追加済みか
+- パーティションは自動登録済み、または手動追加済みか
 - `count(*)` で件数を確認したか
 - 検索条件の IP、期間、`action_raw` に誤りがないか
 - Athena WorkGroup は `fw-log-analytics-wg` を使っているか
 
-## 6. トラブル時の一次切り分け
+## 7. トラブル時の一次切り分け
 
-### 6.1 症状: 0件
+### 7.1 症状: 0件
 主な原因:
 - S3 に対象ログが存在しない
-- パーティション未追加
+- パーティション未登録
 - 日付条件が JST とずれている
 - `srcip` / `dstip` の指定ミス
 - traffic ではなく event ログを検索しようとしている
@@ -106,29 +119,30 @@ WHERE year = '2026'
 
 対応:
 - S3 にない場合は、collector からの投入手順を確認する
-- パーティションがない場合は `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を実行する
+- パーティションがない場合は、自動登録のエラーログを確認し、必要なら `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を実行する
 - JST/UTC 混在が疑われる場合は、対象日の切り方を見直す
 - 条件が厳しすぎる場合は、まず片側条件だけで検索する
 
-### 6.2 症状: AccessDenied
+### 7.2 症状: AccessDenied
 主な原因:
 - Athena WorkGroup の利用権限不足
 - Glue Database / Table の参照権限不足
 - S3 のログバケット読み取り権限不足
 - Athena 結果出力先 `athena-results/` への書き込み権限不足
+- uploader 自動登録時は Glue `GetTable` または `BatchCreatePartition` の権限不足
 
 確認手順:
 1. どのサービスで拒否されたかエラーメッセージを確認する
 2. WorkGroup 名が `fw-log-analytics-wg` になっているか確認する
-3. Glue の `GetDatabase` / `GetTable` が許可されているか確認する
+3. Glue の `GetTable`、必要なら `BatchCreatePartition` が許可されているか確認する
 4. S3 の `fortigate/` と `athena-results/` に必要権限があるか確認する
 
 対応:
-- 検索者ロールの想定権限に戻す
-- 読み取り対象と結果出力先の両方にアクセスできるか見直す
+- 検索者ロールは Athena/Glue/S3 読み取り系に戻す
+- `ingest` ロールは S3 投入と Glue パーティション追加だけに絞る
 - 変更後は `SELECT count(*)` のような軽いクエリで再確認する
 
-### 6.3 症状: HIVE_BAD_DATA
+### 7.3 症状: HIVE_BAD_DATA
 主な原因:
 - ログ形式が Glue テーブルの regex と一致していない
 - event/system ログが traffic 用パスに混入している
@@ -148,27 +162,27 @@ WHERE year = '2026'
 - gzip 破損時は再投入する
 - 影響範囲を限定するため、問題日のみ別パーティションで確認する
 
-## 7. 追加の確認観点
+## 8. 追加の確認観点
 
-### 7.1 検索結果の見方
+### 8.1 検索結果の見方
 - `log_date` / `log_time` が期待範囲か
 - `srcip` / `dstip` が意図した向きか
 - `action_raw` が `accept` / `deny` のどちらか
 - `policyid` が期待ポリシーか
 
-### 7.2 件数が多すぎる場合
+### 8.2 件数が多すぎる場合
 - まず `count(*)` で件数を把握する
 - `LIMIT` を付けて詳細確認する
 - 期間を日単位に狭める
 - `srcip` と `dstip` を片側ずつ確認する
 
-### 7.3 Athena が遅い場合
+### 8.3 Athena が遅い場合
 - `ORDER BY` を外す
 - まず `count(*)` または `LIMIT` 付き SQL で対象を絞る
 - 日付条件をできるだけ狭める
 - text + gzip + RegexSerDe は高速検索向きではないため、将来的な ETL/Parquet 化を検討する
 
-## 8. 運用メモ
+## 9. 運用メモ
 - 本 MVP は **低コスト保管と標準検索** を優先している。
 - grep より高速であることを常に保証する設計ではない。
 - 大量データの継続検索で性能が課題になった場合は、以下を将来案とする。
@@ -176,9 +190,10 @@ WHERE year = '2026'
   - ETL による Parquet 化
   - より低遅延な検索基盤の検討
 
-## 9. Definition of Done
+## 10. Definition of Done
 - ログ投入後の確認手順が記載されている
-- パーティション追加手順が記載されている
+- パーティション自動登録の前提が記載されている
+- 手動フォールバック手順が記載されている
 - 検索前チェックリストがある
 - `0件` の一次対応が記載されている
 - `AccessDenied` の一次対応が記載されている
