@@ -2,9 +2,22 @@
 # Intended install path:
 #   /etc/default/fortigate-uploader
 
+# Required variables
 BUCKET_NAME="fw-log-analytics-dev-xxxxxxxx"
 ROLE_ARN="arn:aws:iam::123456789012:role/fw-log-analytics-dev-ingest-role"
 
-# Uncomment only when the source identity must provide MFA to assume the role.
+# Optional variables
+# CONFIG_FILE="/etc/default/fortigate-uploader"
+# AWS_REGION="ap-northeast-1"
+# SOURCE_PROFILE="fw-base"
+# SOURCE_DIR="/var/log/fortigate"
+# UPLOADED_DIR="/var/log/fortigate/uploaded"
+# S3_PREFIX_ROOT="fortigate"
+# SESSION_NAME="fortigate-log-upload"
+# ASSUME_ROLE_DURATION_SECONDS="3600"
 # MFA_SERIAL_NUMBER="arn:aws:iam::123456789012:mfa/collector-user"
 # MFA_TOKEN_CODE="123456"
+# ENABLE_GLUE_PARTITION_ADD="true"
+# GLUE_DATABASE="fw_log_analytics"
+# GLUE_TABLE="fortigate_logs"
+# PYTHON_BIN="python3"
