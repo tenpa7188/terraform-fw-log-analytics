@@ -71,6 +71,20 @@ data "aws_iam_policy_document" "ingest_access" {
     ]
     resources = ["${aws_s3_bucket.log_bucket.arn}/fortigate/*"]
   }
+
+  statement {
+    sid    = "AllowRegisterFortigatePartitionsInGlue"
+    effect = "Allow"
+    actions = [
+      "glue:BatchCreatePartition",
+      "glue:GetTable"
+    ]
+    resources = [
+      local.glue_catalog_arn,
+      local.glue_database_arn,
+      local.glue_table_arn
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "ingest_access" {

@@ -161,6 +161,7 @@ $bucketArn = "arn:${partition}:s3:::${bucketName}"
 $fortigateObjectArn = "$bucketArn/fortigate/year=2026/month=03/day=07/test.log"
 $athenaResultObjectArn = "$bucketArn/athena-results/query-result.csv"
 $unrelatedBucketArn = "arn:${partition}:s3:::terraform-fw-log-analytics-unrelated-bucket"
+$glueCatalogArn = "arn:${partition}:glue:${region}:${accountId}:catalog"
 $glueDatabaseArn = "arn:${partition}:glue:${region}:${accountId}:database/${glueDatabaseName}"
 $glueTableArn = "arn:${partition}:glue:${region}:${accountId}:table/${glueDatabaseName}/${glueTableName}"
 $unrelatedRoleArn = "arn:${partition}:iam::${accountId}:role/unrelated-test-role"
@@ -185,6 +186,24 @@ $cases += @(
     PolicySourceArn = $ingestRoleArn
     ActionName      = "s3:PutObject"
     ResourceArns    = @($fortigateObjectArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "ingest"
+    Category        = "permissions"
+    Name            = "ingest role can read Glue table metadata"
+    PolicySourceArn = $ingestRoleArn
+    ActionName      = "glue:GetTable"
+    ResourceArns    = @($glueTableArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "ingest"
+    Category        = "permissions"
+    Name            = "ingest role can create Glue partition"
+    PolicySourceArn = $ingestRoleArn
+    ActionName      = "glue:BatchCreatePartition"
+    ResourceArns    = @($glueCatalogArn, $glueDatabaseArn, $glueTableArn)
     Expected        = "allowed"
   },
   @{
