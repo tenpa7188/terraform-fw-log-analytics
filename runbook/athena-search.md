@@ -1,65 +1,186 @@
-# Athena Runbook（パーティション運用）
+# Athena Search Runbook
 
 ## 1. 目的
-- `fw_log_analytics.fortigate_logs` の `year/month/day` パーティションを確実に反映し、検索漏れと不要スキャンを防ぐ。
-- 本Runbookは Issue 13（パーティション運用手順）を対象とする。
+- FortiGate の traffic ログを Athena で再現性高く検索するための運用手順をまとめる。
+- ログ投入後の確認、パーティション追加、標準検索、一次切り分けを統一する。
+- **SQL の具体例は [sql-templates.md](sql-templates.md) を参照**し、この Runbook では運用フローと判断観点を定義する。
 
-## 2. 前提
+## 2. 対象と前提
 - Glue Database: `fw_log_analytics`
 - Glue Table: `fortigate_logs`
-- S3ログ配置: `s3://<log-bucket>/fortigate/year=YYYY/month=MM/day=DD/*.log.gz`
-- 日付基準: JST（Asia/Tokyo）
-- Athena WorkGroup: `fw-log-analytics-wg`（運用標準）
+- Athena WorkGroup: `fw-log-analytics-wg`
+- S3 配置先: `s3://<log-bucket>/fortigate/year=YYYY/month=MM/day=DD/*.log.gz`
+- パーティション基準日: **JST**
+- 対象ログ: **traffic ログ**
+- event/system ログは検索対象外とし、collector 側で別ファイルに分離して保管する。
 
-## 3. 用語
-- `MSCK REPAIR TABLE`: S3のパーティション形式パスを自動検出し、未登録パーティションを一括追加する。
-- `ALTER TABLE ... ADD PARTITION`: 指定したパーティションだけを明示的に追加する。
+## 3. 運用の基本方針
+- 検索前に **S3 配置、パーティション、件数** を確認する。
+- いきなり詳細検索せず、まず `count(*)` で対象日付にデータがあるかを見る。
+- 日付条件は必ず `year/month/day` を指定し、不要なフルスキャンを避ける。
+- 標準検索は [sql-templates.md](sql-templates.md) のテンプレートを使う。
+- 調査メモには、対象日付、検索条件、件数、使用した SQL を残す。
 
-## 4. 標準運用
-### 4.1 初回同期（初回のみ）
+## 4. 正常系の標準手順
+
+### 4.1 S3 にログがあることを確認する
+- 期待パス:
+  - `fortigate/year=YYYY/month=MM/day=DD/`
+- 確認観点:
+  - 日付ディレクトリが正しいか
+  - `.log.gz` ファイルが存在するか
+  - traffic ログが格納されているか
+
+### 4.2 パーティションを反映する
+- 日次で 1 パーティションだけ追加する場合は `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を優先する。
+- まとめて検出したい場合のみ `MSCK REPAIR TABLE` を使う。
+- 理由:
+  - `ALTER TABLE` の方が対象を限定でき、意図しない広範囲スキャンを避けやすい。
+
+```sql
+ALTER TABLE fw_log_analytics.fortigate_logs
+ADD IF NOT EXISTS
+PARTITION (year='2026', month='03', day='16')
+LOCATION 's3://<log-bucket>/fortigate/year=2026/month=03/day=16/';
+```
+
 ```sql
 MSCK REPAIR TABLE fw_log_analytics.fortigate_logs;
 ```
 
-- 用途: 過去データを一括でカタログへ反映する。
-- 実行タイミング: 初回構築時、または大量の過去ログを一括投入した直後。
-
-### 4.2 日次運用（推奨）
-```sql
-ALTER TABLE fw_log_analytics.fortigate_logs
-ADD IF NOT EXISTS
-PARTITION (year='2026', month='03', day='05')
-LOCATION 's3://<log-bucket>/fortigate/year=2026/month=03/day=05/';
-```
-
-- 用途: 当日分または指定日分だけを明示追加する。
-- 実行タイミング: ログ投入完了後。
-- 注意: `LOCATION` は必ずパーティション値と一致させる。
-
-## 5. 反映確認
-### 5.1 パーティション一覧確認
+### 4.3 パーティションが見えていることを確認する
 ```sql
 SHOW PARTITIONS fw_log_analytics.fortigate_logs;
 ```
 
-### 5.2 対象日の件数確認
+- 確認観点:
+  - 追加した `year=YYYY/month=MM/day=DD` が表示されるか
+  - 想定外の日付が混ざっていないか
+
+### 4.4 件数を確認する
 ```sql
 SELECT count(*) AS cnt
 FROM fw_log_analytics.fortigate_logs
-WHERE year='2026' AND month='03' AND day='05';
+WHERE year = '2026'
+  AND month = '03'
+  AND day = '16';
 ```
 
-## 6. トラブルシュート
-| 症状 | 主な原因 | 対応 |
-|---|---|---|
-| クエリ結果が0件 | パーティション未追加 | `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を実行 |
-| クエリ結果が0件 | `LOCATION` と実パス不一致 | S3パスとSQLの `LOCATION` を一致させる |
-| 追加後も0件 | 日付基準の不一致（JST/UTC） | パス設計がJST基準か確認し、条件を合わせる |
-| `AccessDenied` | Athena/Glue/S3権限不足 | 実行ロールの権限を確認（Athena実行、Glue参照、S3参照） |
-| 反映に時間がかかる | `MSCK` を広範囲で実行 | 日次は `ALTER TABLE` 運用へ切替える |
+- 確認観点:
+  - 0 件ではないか
+  - 想定件数とかけ離れていないか
 
-## 7. 運用チェックリスト（日次）
-- ログが `fortigate/year=YYYY/month=MM/day=DD/` に投入済みである。
-- `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を実行した。
-- `SHOW PARTITIONS` で対象日が確認できる。
-- 件数確認クエリでデータが参照できる。
+### 4.5 標準 SQL で検索する
+- `srcip` 検索
+- `dstip` 検索
+- `srcip OR dstip` 横断検索
+- `action_raw` 絞り込み
+- 期間指定検索
+
+上記 SQL は [sql-templates.md](sql-templates.md) を使用する。
+
+## 5. 検索前チェックリスト
+- 対象日付は JST で整理できているか
+- S3 パスは `fortigate/year=YYYY/month=MM/day=DD/` になっているか
+- パーティションは追加済みか
+- `count(*)` で件数を確認したか
+- 検索条件の IP、期間、`action_raw` に誤りがないか
+- Athena WorkGroup は `fw-log-analytics-wg` を使っているか
+
+## 6. トラブル時の一次切り分け
+
+### 6.1 症状: 0件
+主な原因:
+- S3 に対象ログが存在しない
+- パーティション未追加
+- 日付条件が JST とずれている
+- `srcip` / `dstip` の指定ミス
+- traffic ではなく event ログを検索しようとしている
+
+確認手順:
+1. S3 の対象パスにファイルがあるか確認する
+2. `SHOW PARTITIONS` で対象日付が見えているか確認する
+3. `count(*)` で日付単位の件数を確認する
+4. IP 条件を外して対象日の一部データを確認する
+5. `srcip` と `dstip` のどちらで検索すべきか見直す
+
+対応:
+- S3 にない場合は、collector からの投入手順を確認する
+- パーティションがない場合は `ALTER TABLE ... ADD IF NOT EXISTS PARTITION` を実行する
+- JST/UTC 混在が疑われる場合は、対象日の切り方を見直す
+- 条件が厳しすぎる場合は、まず片側条件だけで検索する
+
+### 6.2 症状: AccessDenied
+主な原因:
+- Athena WorkGroup の利用権限不足
+- Glue Database / Table の参照権限不足
+- S3 のログバケット読み取り権限不足
+- Athena 結果出力先 `athena-results/` への書き込み権限不足
+
+確認手順:
+1. どのサービスで拒否されたかエラーメッセージを確認する
+2. WorkGroup 名が `fw-log-analytics-wg` になっているか確認する
+3. Glue の `GetDatabase` / `GetTable` が許可されているか確認する
+4. S3 の `fortigate/` と `athena-results/` に必要権限があるか確認する
+
+対応:
+- 検索者ロールの想定権限に戻す
+- 読み取り対象と結果出力先の両方にアクセスできるか見直す
+- 変更後は `SELECT count(*)` のような軽いクエリで再確認する
+
+### 6.3 症状: HIVE_BAD_DATA
+主な原因:
+- ログ形式が Glue テーブルの regex と一致していない
+- event/system ログが traffic 用パスに混入している
+- gzip ファイルが破損している
+- 文字列形式が想定と異なる
+
+確認手順:
+1. 問題の S3 オブジェクトを特定する
+2. ローカルまたは syslog サーバで gzip 展開し、先頭数行を確認する
+3. `type="traffic"` が入っているか確認する
+4. `date=`, `time=`, `srcip=`, `dstip=` など必要項目が含まれているか確認する
+5. event ログが混入していないか確認する
+
+対応:
+- traffic 以外が混ざっていれば collector の振り分け設定を見直す
+- ログ形式が変わっていれば Glue regex の修正を検討する
+- gzip 破損時は再投入する
+- 影響範囲を限定するため、問題日のみ別パーティションで確認する
+
+## 7. 追加の確認観点
+
+### 7.1 検索結果の見方
+- `log_date` / `log_time` が期待範囲か
+- `srcip` / `dstip` が意図した向きか
+- `action_raw` が `accept` / `deny` のどちらか
+- `policyid` が期待ポリシーか
+
+### 7.2 件数が多すぎる場合
+- まず `count(*)` で件数を把握する
+- `LIMIT` を付けて詳細確認する
+- 期間を日単位に狭める
+- `srcip` と `dstip` を片側ずつ確認する
+
+### 7.3 Athena が遅い場合
+- `ORDER BY` を外す
+- まず `count(*)` または `LIMIT` 付き SQL で対象を絞る
+- 日付条件をできるだけ狭める
+- text + gzip + RegexSerDe は高速検索向きではないため、将来的な ETL/Parquet 化を検討する
+
+## 8. 運用メモ
+- 本 MVP は **低コスト保管と標準検索** を優先している。
+- grep より高速であることを常に保証する設計ではない。
+- 大量データの継続検索で性能が課題になった場合は、以下を将来案とする。
+  - ファイル分割
+  - ETL による Parquet 化
+  - より低遅延な検索基盤の検討
+
+## 9. Definition of Done
+- ログ投入後の確認手順が記載されている
+- パーティション追加手順が記載されている
+- 検索前チェックリストがある
+- `0件` の一次対応が記載されている
+- `AccessDenied` の一次対応が記載されている
+- `HIVE_BAD_DATA` の一次対応が記載されている
+- SQL テンプレートへの参照がある
