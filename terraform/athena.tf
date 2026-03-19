@@ -2,7 +2,7 @@ resource "aws_athena_workgroup" "fw_log_analytics" {
   name          = local.athena_workgroup_name
   description   = "Standard Athena workgroup for firewall log analytics queries."
   state         = "ENABLED"
-  force_destroy = false
+  force_destroy = true
   depends_on    = [aws_s3_bucket.log_bucket]
 
   configuration {
