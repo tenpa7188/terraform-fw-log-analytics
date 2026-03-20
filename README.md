@@ -94,14 +94,15 @@ athena_results_retention_days            = 30
 athena_results_noncurrent_retention_days = 7
 athena_bytes_scanned_cutoff_per_query    = 10737418240
 create_ingest_iam_user                   = true
-create_ingest_iam_access_key             = true
+create_ingest_iam_access_key             = false
 ```
 
 注意:
 - `create_ingest_iam_user = true`
   - `ingest` ロールを引き受ける専用 IAM ユーザーを作成する
-- `create_ingest_iam_access_key = true`
-  - syslogサーバ などの AWS 外ホストで AWS CLI を使う場合に必要
+- `create_ingest_iam_access_key`
+  - syslogサーバ などの AWS 外ホストで AWS CLI を使う場合だけ有効化する
+  - 公開リポジトリの既定値は `false` とし、不要な長期アクセスキーを作らない
   - アクセスキーのシークレットは Terraform state に保存されるため、本番では扱いに注意する
 
 ### 3. `terraform init`
@@ -188,7 +189,7 @@ terraform output
 - `iam_ingest_user_name`
 - `iam_ingest_user_access_key_id`
 
-アクセスキーのシークレット確認が必要な場合:
+アクセスキー作成を有効化した場合のみ、シークレット確認が必要になる:
 
 ```powershell
 terraform output -raw iam_ingest_user_secret_access_key
