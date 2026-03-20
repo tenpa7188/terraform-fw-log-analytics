@@ -36,7 +36,7 @@ FortiGate を想定した FW ログを S3 に保管し、Glue Data Catalog と A
 ## アーキテクチャ概要
 
 ```text
-FortiGate / syslog collector
+FortiGate / syslogサーバ
   -> S3 (fortigate/year=YYYY/month=MM/day=DD/)
   -> Glue Data Catalog
   -> Athena WorkGroup
@@ -54,7 +54,7 @@ FortiGate / syslog collector
 - [samples](samples)
   - ダミー FortiGate ログ
 - [scripts](scripts)
-  - collector 側の補助スクリプトや rsyslog 設定
+  - syslogサーバ側の補助スクリプトや rsyslog 設定
 
 ## 前提条件
 
@@ -63,7 +63,6 @@ FortiGate / syslog collector
 - AWS の認証が通っていること
 - 実行リージョンは `ap-northeast-1` を推奨
 - Terraform コマンドは `terraform/` ディレクトリで実行する
-- `terraform plan` と `terraform apply` はユーザー自身が実行する
 
 ## 初回構築手順
 
@@ -102,7 +101,7 @@ create_ingest_iam_access_key             = true
 - `create_ingest_iam_user = true`
   - `ingest` ロールを引き受ける専用 IAM ユーザーを作成する
 - `create_ingest_iam_access_key = true`
-  - collector などの AWS 外ホストで AWS CLI を使う場合に必要
+  - syslogサーバ などの AWS 外ホストで AWS CLI を使う場合に必要
   - アクセスキーのシークレットは Terraform state に保存されるため、本番では扱いに注意する
 
 ### 3. `terraform init`
@@ -223,7 +222,7 @@ terraform output -raw iam_ingest_user_secret_access_key
 - [sql-templates.md](runbook/sql-templates.md)
 - [athena-search.md](runbook/athena-search.md)
 
-## collector 側の補助ファイル
+## syslogサーバ側の補助ファイル
 
 - [30-fortigate.conf](scripts/30-fortigate.conf)
   - rsyslog で FortiGate の syslog を受ける設定
@@ -233,6 +232,34 @@ terraform output -raw iam_ingest_user_secret_access_key
   - AssumeRole を使って S3 にアップロードするスクリプト
 - [upload-fortigate.example](scripts/upload-fortigate.example)
   - スクリプト用設定ファイルのサンプル
+
+実際の配置先の例:
+
+```bash
+/etc/rsyslog.d/30-fortigate.conf
+/etc/default/fortigate-uploader
+/usr/local/bin/upload-fortigate-logs.sh
+/var/log/fortigate/incoming.log
+/var/log/fortigate/event.log
+/var/log/fortigate/uploaded/
+```
+
+cron 設定例:
+
+```bash
+sudo crontab -e
+```
+
+日次実行の例:
+
+```cron
+10 1 * * * /usr/local/bin/upload-fortigate-logs.sh >> /var/log/fortigate/upload.log 2>&1
+```
+
+補足:
+- 例では毎日 `01:10` に前日分のローテート済み gzip ログをアップロードする
+- `/etc/default/fortigate-uploader` に `BUCKET_NAME` と `ROLE_ARN` を設定してから実行する
+- `ENABLE_GLUE_PARTITION_ADD="true"` を設定した場合は、アップロード後に Glue へパーティション登録も行う
 
 ## 破棄手順
 
@@ -262,5 +289,4 @@ terraform destroy -var-file="envs/dev.tfvars"
 
 - Parquet 変換による Athena コスト最適化
 - event ログ用の別テーブル追加
-- collector からの自動アップロード運用
 - Terraform modules 化
