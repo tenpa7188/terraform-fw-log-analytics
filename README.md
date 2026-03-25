@@ -231,6 +231,10 @@ terraform output -raw iam_ingest_user_secret_access_key
   - rsyslog で FortiGate の syslog を受ける設定
   - `incoming.log` は traffic 専用
   - `event.log` は event 専用
+  - `other.log` は traffic、event以外のログ
+- [logrotate-fortigate.conf](scripts/logrotate-fortigate.conf)
+  - syslogサーバ上の `incoming.log` / `event.log` / `other.log` を日次でローテートする設定
+  - `incoming.log-YYYYMMDD.gz` のようなローテート済み gzip を作成する
 - [upload-fortigate-logs.sh](scripts/upload-fortigate-logs.sh)
   - AssumeRole を使って S3 にアップロードするスクリプト
 - [upload-fortigate.example](scripts/upload-fortigate.example)
@@ -240,11 +244,25 @@ terraform output -raw iam_ingest_user_secret_access_key
 
 ```bash
 /etc/rsyslog.d/30-fortigate.conf
+/etc/logrotate.d/fortigate
 /etc/default/fortigate-uploader
 /usr/local/bin/upload-fortigate-logs.sh
 /var/log/fortigate/incoming.log
 /var/log/fortigate/event.log
+/var/log/fortigate/other.log
 /var/log/fortigate/uploaded/
+```
+
+配置例:
+
+```bash
+sudo cp scripts/30-fortigate.conf /etc/rsyslog.d/30-fortigate.conf
+sudo cp scripts/logrotate-fortigate.conf /etc/logrotate.d/fortigate
+sudo cp scripts/upload-fortigate.example /etc/default/fortigate-uploader
+sudo cp scripts/upload-fortigate-logs.sh /usr/local/bin/upload-fortigate-logs.sh
+sudo chmod 600 /etc/default/fortigate-uploader
+sudo chmod 755 /usr/local/bin/upload-fortigate-logs.sh
+sudo mkdir -p /var/log/fortigate/uploaded
 ```
 
 cron 設定例:
@@ -261,6 +279,7 @@ sudo crontab -e
 
 補足:
 - 例では毎日 `01:10` に前日分のローテート済み gzip ログをアップロードする
+- logrotate は OS 標準の日次実行に任せ、`incoming.log-YYYYMMDD.gz` を生成する前提とする
 - `/etc/default/fortigate-uploader` に `BUCKET_NAME` と `ROLE_ARN` を設定してから実行する
 - `ENABLE_GLUE_PARTITION_ADD="true"` を設定した場合は、アップロード後に Glue へパーティション登録も行う
 
@@ -293,3 +312,4 @@ terraform destroy -var-file="envs/dev.tfvars"
 - Parquet 変換による Athena コスト最適化
 - event ログ用の別テーブル追加
 - Terraform modules 化
+
