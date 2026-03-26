@@ -253,18 +253,6 @@ terraform output -raw iam_ingest_user_secret_access_key
 /var/log/fortigate/uploaded/
 ```
 
-配置例:
-
-```bash
-sudo cp scripts/30-fortigate.conf /etc/rsyslog.d/30-fortigate.conf
-sudo cp scripts/logrotate-fortigate.conf /etc/logrotate.d/fortigate
-sudo cp scripts/upload-fortigate.example /etc/default/fortigate-uploader
-sudo cp scripts/upload-fortigate-logs.sh /usr/local/bin/upload-fortigate-logs.sh
-sudo chmod 600 /etc/default/fortigate-uploader
-sudo chmod 755 /usr/local/bin/upload-fortigate-logs.sh
-sudo mkdir -p /var/log/fortigate/uploaded
-```
-
 cron 設定例:
 
 ```bash
