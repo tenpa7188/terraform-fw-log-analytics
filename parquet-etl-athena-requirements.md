@@ -88,7 +88,7 @@
 ### 8.1 データ配置
 - raw ログは従来どおり保持する
 - Parquet 出力先を新設する
-  - 推奨 prefix: `fortigate-parquet/year=YYYY/month=MM/day=DD/`
+  - 確定 prefix: `fortigate-parquet/year=YYYY/month=MM/day=DD/`
 - raw と Parquet を同一バケット内で管理できること
 
 ### 8.2 入力元
@@ -97,7 +97,7 @@
 
 ### 8.3 出力先テーブル
 - Parquet 用 Glue Table を新規作成する
-- 推奨テーブル名: `fw_log_analytics.fortigate_logs_parquet`
+- 確定テーブル名: `fw_log_analytics.fortigate_logs_parquet`
 - パーティションキーは raw と同じ `year`, `month`, `day` とする
 
 ### 8.4 出力列
@@ -124,18 +124,21 @@
 
 ### 8.6 実行方式
 - 初回バックフィル
-  - Athena CTAS または段階的な `INSERT INTO` により実施できること
+  - **1 年分を日単位の `INSERT INTO` で実施する**
 - 日次増分
   - `year/month/day` 単位で Parquet へ追記できること
 - 実行は自動化可能であること
   - 手動実行のみで終わらせない
+- 日次実行の契機
+  - **AWS 側スケジュール実行**とする
+  - syslog サーバは raw を S3 に配置する責務までに留める
 
 ### 8.7 冪等性
 - 同じ日付を二重投入しないこと
-- 再実行時の扱いを定義すること
-  - 上書き
-  - 削除して再生成
-  - 未生成日のみ追加
+- 再実行時は**対象日を再生成**すること
+  - 対象日付の Parquet 出力を削除する
+  - raw テーブルから対象日を再変換する
+  - 重複データを残さない
 
 ## 9. 非機能要件
 
@@ -143,6 +146,9 @@
 - **Parquet 化 ETL は検索速度を上げることを必須要件とする**
 - 同一条件の検索において、raw テーブルより Parquet テーブルの方が**スキャン量が少ない**こと
 - 同一条件の検索において、raw テーブルより Parquet テーブルの方が**実行時間が短い**こと
+- 標準検索先の切替条件は次とする
+  - raw 比で**スキャン量減少**を確認できること
+  - raw 比で**実行時間短縮**を確認できること
 - 少なくとも次の観点で改善を確認する
   - `srcip`
   - `dstip`
@@ -170,9 +176,10 @@
 
 ## 10. 設計上の前提ルール
 - raw は原本、Parquet は検索最適化用の派生データと位置づける
-- 標準検索は Parquet 優先とする
+- 標準検索は、性能確認後に Parquet 優先へ切り替える
 - 異常時・抽出漏れ確認は raw テーブルを使う
 - event ログは今回の Parquet 化対象に含めない
+- raw と Parquet は**同一 S3 バケット内**で管理する
 
 ## 11. Terraform で必要となる追加対象
 - S3
@@ -205,16 +212,13 @@
 - `raw_line` を Parquet から外すため、標準検索外の調査は raw テーブル依存になる
 
 ## 15. 未決事項
-- Parquet 出力 prefix 名を `fortigate-parquet/` で固定するか
-- Parquet テーブル名を `fortigate_logs_parquet` で固定するか
-- 日次実行の契機を
-  - syslog サーバ側から Athena 実行するか
-  - AWS 側スケジュール実行にするか
-- 初回バックフィルを
-  - 一括 CTAS にするか
-  - 日単位 `INSERT INTO` にするか
-- 再実行時の方針を
-  - 上書き
-  - 再生成
-  - 追加のみ
-  のどれにするか
+- なし
+
+## 16. 今回確定した要件
+- raw と Parquet は**同一 S3 バケット**で管理する
+- Parquet 出力 prefix は `fortigate-parquet/` とする
+- Parquet テーブル名は `fortigate_logs_parquet` とする
+- 日次実行の契機は **AWS 側スケジュール実行**とする
+- 初回バックフィルは **1 年分を日単位の `INSERT INTO`** で実施する
+- 再実行方針は **対象日を再生成**とする
+- 標準検索先は、raw 比で**スキャン量減少**かつ**実行時間短縮**を確認した後に Parquet 優先へ切り替える
