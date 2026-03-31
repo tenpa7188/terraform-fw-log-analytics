@@ -1,7 +1,7 @@
-# Athena 方式 Parquet 化 要件定義ドラフト
+# Athena 方式 Parquet 化 要件定義書
 
 ## 1. 文書の目的
-- 本文書は、`terraform-fw-log-analytics` に Parquet 化を追加する際の**要件定義ドラフト**である。
+- 本文書は、`terraform-fw-log-analytics` に Parquet 化を追加する際の**要件定義書**である。
 - 比較資料 [parquet-etl-options.md](parquet-etl-options.md) を踏まえ、**Athena CTAS / INSERT INTO 方式を採用する前提**で、何を満たすべきかを整理する。
 - 本文書は次フェーズの設計・実装・Issue 分解の基準文書として使用する。
 
