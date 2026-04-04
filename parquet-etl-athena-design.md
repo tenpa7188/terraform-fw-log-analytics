@@ -41,9 +41,10 @@
   - 完了まで監視
     |
     v
-[Athena WorkGroup]
-  - fw-log-analytics-wg
-  - 結果出力先は athena-results/
+[Athena ETL WorkGroup]
+  - fw-log-analytics-etl-wg
+  - ETL クエリ専用
+  - 結果出力先は athena-results/etl/
     |
     v
 [S3 parquet]
@@ -64,7 +65,7 @@
   - `fw_log_analytics`
 - Glue raw table
   - `fortigate_logs`
-- Athena WorkGroup
+- Athena 検索用 WorkGroup
   - `fw-log-analytics-wg`
 
 ### 4.2 追加コンポーネント
@@ -76,6 +77,8 @@
   - `parquet-etl-runner`
 - EventBridge Scheduler
   - 日次実行スケジュール
+- Athena ETL 用 WorkGroup
+  - `fw-log-analytics-etl-wg`
 - IAM
   - Lambda 実行ロール
 
@@ -115,24 +118,26 @@
   - `fw_log_analytics.fortigate_logs_parquet`
 - データ形式:
   - `PARQUET`
+- 圧縮方式:
+  - `SNAPPY`
 - パーティション:
   - `year`, `month`, `day`
 - ルートロケーション:
   - `s3://<bucket>/fortigate-parquet/`
 
 ### 6.3 Parquet テーブル列
-- `log_date`
-- `log_time`
-- `srcip`
-- `dstip`
-- `srcport`
-- `dstport`
-- `proto`
-- `action_raw`
-- `policyid`
-- `year`
-- `month`
-- `day`
+- `log_date`: `string`
+- `log_time`: `string`
+- `srcip`: `string`
+- `dstip`: `string`
+- `srcport`: `int`
+- `dstport`: `int`
+- `proto`: `int`
+- `action_raw`: `string`
+- `policyid`: `int`
+- `year`: `string`
+- `month`: `string`
+- `day`: `string`
 
 ### 6.4 `raw_line` を含めない理由
 - 検索用途は構造化列中心で十分
@@ -156,6 +161,11 @@
   - `fw_log_analytics.fortigate_logs`
 - 条件:
   - 対象日を `year/month/day` で絞る
+- 管理方式:
+  - SQL は Lambda コードに埋め込まず、別ファイルで管理する
+  - 例:
+    - `sql/parquet/insert_daily.sql`
+  - Lambda は SQL ファイルを読み込み、対象日パラメータを埋めて Athena に実行させる
 
 #### SQL テンプレート例
 ```sql
@@ -191,24 +201,49 @@ Sources:
 ### 8.1 実行契機
 - EventBridge Scheduler を使用する
 - 例:
-  - 毎日 `02:00 JST`
+  - 毎日 `08:00 JST`（仮設定）
+
+### 8.1.1 実行先 WorkGroup
+- ETL 実行は `fw-log-analytics-etl-wg` を使用する
+- 検索用途の `fw-log-analytics-wg` とは分離する
+- 理由:
+  - ETL と検索のクエリ履歴を分ける
+  - ETL クエリの失敗やコストを分けて把握する
+  - ETL 実行ロールの権限を絞りやすくする
 
 ### 8.2 実行順序
 1. Scheduler が Lambda を起動
-2. Lambda が対象日を計算
-   - 既定は「前日」
-3. Lambda が対象日の raw データ有無を確認
-4. Lambda が対象日の Parquet prefix を削除
-5. Lambda が Athena `INSERT INTO` を実行
-6. Lambda が Athena 完了状態を監視
-7. 成功/失敗を CloudWatch Logs に記録
+2. Lambda が確認対象日を計算
+   - 既定は「前日」を起点に、直近 7 日を確認する
+3. Lambda が各日について raw データ有無を確認
+4. raw があり、Parquet 未作成の日を未処理日として抽出する
+5. 未処理日ごとに Parquet prefix を削除して再生成する
+6. Lambda が Athena `INSERT INTO` を実行する
+7. Lambda が Athena 完了状態を監視する
+8. 成功/失敗/skip を CloudWatch Logs に記録する
 
 ### 8.3 実行時刻の考え方
 - syslog サーバ側の raw 投入と Glue パーティション登録が終わった後にする
 - 推奨:
   - raw 投入と重ならない時刻に寄せる
+  - 現時点では upstream が anacron のため、仮で `08:00 JST` を採用する
+  - raw アップロード実測完了時刻を確認後に再調整する
 
-### 8.4 設計意図
+### 8.4 未着データと catch-up の扱い
+- raw 未着の日付は失敗ではなく skip として記録する
+- raw があり、Parquet が未作成の日付は未処理日として変換対象にする
+- これにより、翌日に raw が到着した場合でも、次回実行で複数日分をまとめて処理できる
+- 推奨 window:
+  - 直近 7 日
+
+### 8.5 失敗の定義
+- skip:
+  - raw がまだ存在しない
+- fail:
+  - raw は存在するが、S3 削除、Athena クエリ、権限、結果確認など ETL 実行中に失敗した
+- 目的:
+  - upstream の時刻揺れによる不要な失敗通知を減らしつつ、本当の ETL 失敗は検知する
+### 8.6 設計意図
 - syslog サーバに Athena 実行権限を持たせない
 - 収集と変換を分離し、障害切り分けをしやすくする
 
@@ -221,8 +256,8 @@ Sources:
 ### 9.2 実行方法
 - 日次と同じ Lambda を使い、対象日を明示して順に実行する
 - 実行主体:
-  - 管理者が AWS CLI から Lambda を日付ごとに呼び出す
-  - もしくは簡易バッチスクリプトを別途用意する
+  - 管理者が PowerShell 補助スクリプトから Lambda を日付ごとに呼び出す
+  - 補助スクリプトはリポジトリ管理し、再実行時も同じ手順を使えるようにする
 
 ### 9.3 理由
 - 失敗日を特定しやすい
@@ -255,6 +290,13 @@ Sources:
 - Athena 完了待ち
 - ログ出力
 
+### 11.1.1 実装方式
+- まずは A 案を採用する
+  - Lambda が Athena クエリを開始し、完了まで待機する
+- 理由:
+  - 学習用途として処理の流れを 1 本で追いやすいため
+- ただし、実測で実行時間が長い場合は、開始と監視を分離する方式へ見直す
+
 ### 11.2 入力
 - `mode`
   - `daily`
@@ -275,6 +317,18 @@ Sources:
 - CloudWatch Logs へ詳細を残す
 - 必要に応じて再実行する
 
+### 11.5 初期ランタイム設定
+- runtime:
+  - Python
+- memory:
+  - 256 MB
+- timeout:
+  - 600 秒
+- retry:
+  - EventBridge Scheduler の標準再試行を利用する
+- 補足:
+  - これは仮設定であり、Athena `INSERT INTO` の実測後に再調整する
+
 ## 12. IAM 設計
 
 ### 12.1 Lambda 実行ロールに必要な権限
@@ -290,7 +344,7 @@ Sources:
 - S3
   - raw prefix の `GetObject` / `ListBucket`
   - parquet prefix の `PutObject` / `DeleteObject` / `ListBucket`
-  - `athena-results/` の書き込み
+  - `athena-results/etl/` の書き込み
 - CloudWatch Logs
   - Lambda 標準出力
 
@@ -368,3 +422,7 @@ Sources:
 3. 初回バックフィル実行用スクリプトの要否
 4. Parquet prefix のライフサイクル方針
 5. Parquet テーブルをいつ標準検索先へ切り替えるか
+6. 詳細確認シートで未確定事項を順に確定する
+
+補足:
+- 詳細設計の確認シートは [parquet-etl-athena-design-checksheet.md](parquet-etl-athena-design-checksheet.md) を参照する。
