@@ -1,7 +1,7 @@
-# Athena 方式 Parquet 化 設計ドラフト
+# Athena 方式 Parquet 化 設計書
 
 ## 1. 目的
-- 本文書は、[parquet-etl-athena-requirements.md](parquet-etl-athena-requirements.md) で確定した要件をもとに、Athena 方式による Parquet 化の設計を具体化するためのドラフトである。
+- 本文書は、[parquet-etl-athena-requirements.md](parquet-etl-athena-requirements.md) で確定した要件をもとに、Athena 方式による Parquet 化の設計を具体化したものである。
 - 本設計では、raw ログを残したまま、Athena を使って Parquet を生成し、検索性能を改善する構成を定義する。
 
 ## 2. 設計方針
@@ -271,14 +271,21 @@ Sources:
 - 再実行は**対象日を再生成**する
 
 ### 10.2 手順
-1. `fortigate-parquet/year=YYYY/month=MM/day=DD/` を削除
-2. 同じ日付条件で `INSERT INTO` を再実行
-3. 完了確認
+1. 対象日の raw prefix が存在することを確認
+2. 削除対象の Parquet prefix を dry-run 相当ログで出力
+3. `fortigate-parquet/year=YYYY/month=MM/day=DD/` を削除
+4. 同じ日付条件で `INSERT INTO` を再実行
+5. 完了確認
 
 ### 10.3 設計意図
 - append による重複を避ける
 - 派生データは作り直せる前提にする
 - raw を原本として残しているため、再生成が可能
+
+### 10.4 安全策
+- raw が存在しない場合は処理を中止する
+- 削除前に、対象日と削除対象 prefix を dry-run 相当ログとして必ず出力する
+- 削除範囲は対象日の Parquet prefix のみに限定する
 
 ## 11. Lambda 設計
 
@@ -383,6 +390,17 @@ Sources:
 - 実行時間
 - スキャンしたデータ量
 
+### 14.3.1 比較データセット
+- 次の 3 パターンで比較する
+  - 1日
+  - 30日
+  - 365日
+
+### 14.3.2 比較条件
+- raw / Parquet で同一 SQL を使う
+- 各 SQL は raw / Parquet それぞれ 3 回実行し、中央値で比較する
+- 比較条件を揃えるため、`ORDER BY` と `LIMIT` は付けない
+
 ### 14.4 切替条件
 - raw 比で**スキャン量減少**
 - raw 比で**実行時間短縮**
@@ -394,6 +412,16 @@ Sources:
   - raw テーブル
 - `HIVE_BAD_DATA` や抽出漏れ確認:
   - raw テーブルを利用
+
+### 15.1 切替手順
+- Parquet が次の切替条件を満たした後に、標準検索先を raw から Parquet へ切り替える
+  - raw 比で**スキャン量減少**
+  - raw 比で**実行時間短縮**
+- 切替時は、次の文書を同一タイミングで更新する
+  - `README.md`
+  - `runbook/athena-search.md`
+  - `runbook/sql-templates.md`
+- raw テーブルは削除せず、フォールバック検索先として残す
 
 ## 16. リスクと設計上の注意
 - 1 日 1 回の `INSERT INTO` で Parquet ファイルが細かくなりすぎる可能性がある
