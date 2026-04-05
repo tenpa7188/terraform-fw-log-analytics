@@ -97,3 +97,92 @@ resource "aws_glue_catalog_table" "fortigate_logs" {
     type = "string"
   }
 }
+
+resource "aws_glue_catalog_table" "fortigate_logs_parquet" {
+  name          = "fortigate_logs_parquet"
+  database_name = aws_glue_catalog_database.fw_log_analytics.name
+  table_type    = "EXTERNAL_TABLE"
+  description   = "Parquet-optimized FortiGate-style firewall logs for standard Athena searches."
+
+  parameters = {
+    EXTERNAL              = "TRUE"
+    classification        = "parquet"
+    typeOfData            = "file"
+    "parquet.compression" = "SNAPPY"
+  }
+
+  storage_descriptor {
+    location      = "s3://${aws_s3_bucket.log_bucket.bucket}/fortigate-parquet/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+    compressed    = true
+
+    ser_de_info {
+      name                  = "fortigate-logs-parquet-serde"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      parameters = {
+        "serialization.format" = "1"
+      }
+    }
+
+    columns {
+      name = "log_date"
+      type = "string"
+    }
+
+    columns {
+      name = "log_time"
+      type = "string"
+    }
+
+    columns {
+      name = "srcip"
+      type = "string"
+    }
+
+    columns {
+      name = "dstip"
+      type = "string"
+    }
+
+    columns {
+      name = "srcport"
+      type = "int"
+    }
+
+    columns {
+      name = "dstport"
+      type = "int"
+    }
+
+    columns {
+      name = "proto"
+      type = "int"
+    }
+
+    columns {
+      name = "action_raw"
+      type = "string"
+    }
+
+    columns {
+      name = "policyid"
+      type = "int"
+    }
+  }
+
+  partition_keys {
+    name = "year"
+    type = "string"
+  }
+
+  partition_keys {
+    name = "month"
+    type = "string"
+  }
+
+  partition_keys {
+    name = "day"
+    type = "string"
+  }
+}

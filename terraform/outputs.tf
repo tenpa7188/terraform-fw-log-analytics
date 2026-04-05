@@ -93,6 +93,16 @@ output "glue_table_location" {
   value       = "s3://${aws_s3_bucket.log_bucket.bucket}/fortigate/"
 }
 
+output "glue_parquet_table_name" {
+  description = "Glue Data Catalog table name for Parquet-optimized firewall logs."
+  value       = aws_glue_catalog_table.fortigate_logs_parquet.name
+}
+
+output "glue_parquet_table_location" {
+  description = "S3 location referenced by the Glue Parquet firewall log table."
+  value       = "s3://${aws_s3_bucket.log_bucket.bucket}/fortigate-parquet/"
+}
+
 output "iam_ingest_role_name" {
   description = "IAM role name for log ingestion operations."
   value       = aws_iam_role.ingest.name
