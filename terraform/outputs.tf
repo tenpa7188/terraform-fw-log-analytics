@@ -58,6 +58,16 @@ output "athena_results_location" {
   value       = local.athena_results_location
 }
 
+output "athena_etl_results_prefix" {
+  description = "Prefix used for Athena ETL query result objects."
+  value       = local.athena_etl_results_prefix
+}
+
+output "athena_etl_results_location" {
+  description = "S3 location used for Athena ETL query results."
+  value       = local.athena_etl_results_location
+}
+
 output "athena_workgroup_name" {
   description = "Standard Athena workgroup name for this project."
   value       = aws_athena_workgroup.fw_log_analytics.name
@@ -71,6 +81,21 @@ output "athena_workgroup_arn" {
 output "athena_workgroup_state" {
   description = "Current state of the standard Athena workgroup."
   value       = aws_athena_workgroup.fw_log_analytics.state
+}
+
+output "athena_etl_workgroup_name" {
+  description = "Dedicated Athena workgroup name for Parquet ETL queries."
+  value       = aws_athena_workgroup.fw_log_analytics_etl.name
+}
+
+output "athena_etl_workgroup_arn" {
+  description = "ARN of the dedicated Athena ETL workgroup."
+  value       = aws_athena_workgroup.fw_log_analytics_etl.arn
+}
+
+output "athena_etl_workgroup_state" {
+  description = "Current state of the dedicated Athena ETL workgroup."
+  value       = aws_athena_workgroup.fw_log_analytics_etl.state
 }
 
 output "athena_bytes_scanned_cutoff_per_query" {
