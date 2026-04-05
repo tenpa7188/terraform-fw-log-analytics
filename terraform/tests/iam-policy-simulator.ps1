@@ -1,6 +1,7 @@
 #
 # Purpose:
-#   Validate IAM responsibility boundaries for ingest / analyst / parquet_etl / terraform
+#   Validate IAM responsibility boundaries for ingest / analyst / parquet_etl /
+#   parquet_etl_scheduler / terraform
 #   by using aws iam simulate-principal-policy against the Terraform-managed
 #   roles and resource names from the current state.
 #
@@ -11,8 +12,8 @@
 #
 [CmdletBinding()]
 param(
-  [ValidateSet("ingest", "analyst", "parquet_etl", "terraform")]
-  [string[]]$Role = @("ingest", "analyst", "parquet_etl", "terraform"),
+  [ValidateSet("ingest", "analyst", "parquet_etl", "parquet_etl_scheduler", "terraform")]
+  [string[]]$Role = @("ingest", "analyst", "parquet_etl", "parquet_etl_scheduler", "terraform"),
 
   [string]$TerraformDir = (Resolve-Path (Join-Path $Get-Location "..")).Path
 )
@@ -153,6 +154,8 @@ $athenaEtlWorkgroupArn = Get-OutputValue -Outputs $outputs -Name "athena_etl_wor
 $ingestRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_ingest_role_arn"
 $analystRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_analyst_role_arn"
 $parquetEtlRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_parquet_etl_role_arn"
+$parquetEtlSchedulerRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_parquet_etl_scheduler_role_arn"
+$parquetEtlLambdaArn = Get-OutputValue -Outputs $outputs -Name "parquet_etl_lambda_function_arn"
 $terraformRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_terraform_role_arn"
 
 if ($terraformRoleArn -notmatch "^arn:(?<partition>[^:]+):iam::(?<account_id>\d{12}):role/.+$") {
@@ -171,6 +174,7 @@ $glueCatalogArn = "arn:${partition}:glue:${region}:${accountId}:catalog"
 $glueDatabaseArn = "arn:${partition}:glue:${region}:${accountId}:database/${glueDatabaseName}"
 $glueTableArn = "arn:${partition}:glue:${region}:${accountId}:table/${glueDatabaseName}/${glueTableName}"
 $glueParquetTableArn = "arn:${partition}:glue:${region}:${accountId}:table/${glueDatabaseName}/${glueParquetTableName}"
+$unrelatedLambdaArn = "arn:${partition}:lambda:${region}:${accountId}:function:unrelated-test-function"
 $unrelatedRoleArn = "arn:${partition}:iam::${accountId}:role/unrelated-test-role"
 
 $cases = @()
@@ -400,6 +404,24 @@ $cases += @(
     PolicySourceArn = $parquetEtlRoleArn
     ActionName      = "s3:PutObject"
     ResourceArns    = @($athenaResultObjectArn)
+    Expected        = "implicitDeny"
+  },
+  @{
+    Role            = "parquet_etl_scheduler"
+    Category        = "permissions"
+    Name            = "parquet etl scheduler role can invoke parquet etl lambda"
+    PolicySourceArn = $parquetEtlSchedulerRoleArn
+    ActionName      = "lambda:InvokeFunction"
+    ResourceArns    = @($parquetEtlLambdaArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl_scheduler"
+    Category        = "permissions"
+    Name            = "parquet etl scheduler role cannot invoke unrelated lambda"
+    PolicySourceArn = $parquetEtlSchedulerRoleArn
+    ActionName      = "lambda:InvokeFunction"
+    ResourceArns    = @($unrelatedLambdaArn)
     Expected        = "implicitDeny"
   },
   @{

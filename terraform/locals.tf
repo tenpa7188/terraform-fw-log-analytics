@@ -10,6 +10,14 @@ locals {
   athena_etl_results_location = "s3://${local.log_bucket_name}/${local.athena_etl_results_prefix}"
   athena_etl_workgroup_name   = "fw-log-analytics-etl-wg"
   parquet_etl_lambda_name     = "${local.name_prefix}-parquet-etl-runner"
+  parquet_etl_lambda_runtime  = "python3.12"
+  parquet_etl_lambda_memory   = 256
+  parquet_etl_lambda_timeout  = 600
+  parquet_etl_lookback_days   = 7
+  parquet_etl_schedule_name   = "${local.name_prefix}-parquet-etl-daily"
+  parquet_etl_schedule_role   = "${local.name_prefix}-parquet-etl-scheduler-role"
+  parquet_etl_schedule_cron   = "cron(0 8 * * ? *)"
+  parquet_etl_schedule_tz     = "Asia/Tokyo"
 
   common_tags = merge(
     {

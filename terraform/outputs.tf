@@ -179,6 +179,11 @@ output "iam_parquet_etl_role_arn" {
   value       = aws_iam_role.parquet_etl.arn
 }
 
+output "iam_parquet_etl_scheduler_role_arn" {
+  description = "IAM role ARN for EventBridge Scheduler to invoke the Parquet ETL Lambda."
+  value       = aws_iam_role.parquet_etl_scheduler.arn
+}
+
 output "iam_terraform_role_name" {
   description = "IAM role name for Terraform infrastructure operations."
   value       = aws_iam_role.terraform.name
@@ -187,4 +192,19 @@ output "iam_terraform_role_name" {
 output "iam_terraform_role_arn" {
   description = "IAM role ARN for Terraform infrastructure operations."
   value       = aws_iam_role.terraform.arn
+}
+
+output "parquet_etl_lambda_function_name" {
+  description = "Lambda function name for Athena-based Parquet ETL orchestration."
+  value       = aws_lambda_function.parquet_etl_runner.function_name
+}
+
+output "parquet_etl_lambda_function_arn" {
+  description = "Lambda function ARN for Athena-based Parquet ETL orchestration."
+  value       = aws_lambda_function.parquet_etl_runner.arn
+}
+
+output "parquet_etl_schedule_name" {
+  description = "EventBridge Scheduler name for daily Parquet ETL execution."
+  value       = aws_scheduler_schedule.parquet_etl_daily.name
 }
