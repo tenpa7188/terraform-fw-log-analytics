@@ -12,6 +12,24 @@
 - 再実行は **対象日を再生成**する
 - 標準検索先は、性能確認後に raw から Parquet へ切り替える
 
+### 2.1 設計確定状況
+- 確定済み項目
+  - No.1 Parquet テーブルの列型
+  - No.2 Parquet の圧縮方式
+  - No.3 ETL 用 Athena WorkGroup 分離
+  - No.5 Athena SQL の管理方式
+  - No.7 初回バックフィルの実行方法
+  - No.8 再生成時の削除範囲と安全策
+  - No.9 性能確認の評価基準
+  - No.10 標準検索先の切替手順
+- 仮設定の項目
+  - No.4 Lambda の実装言語・実行設定
+    - Python / 256 MB / 600 秒
+    - 実測後に再調整する
+  - No.6 日次実行の時刻と対象日ルール
+    - 前日分 / `08:00 JST` / 直近 7 日 catch-up
+    - raw アップロード実測完了時刻確認後に再調整する
+
 ## 3. 全体アーキテクチャ
 ```text
 [FortiGate]
@@ -444,13 +462,6 @@ Sources:
 - README
   - Parquet 標準検索方針の追記
 
-## 18. 次の設計詳細化ポイント
-1. Lambda 実装言語
-2. Lambda から Athena へ渡す SQL の管理方式
-3. 初回バックフィル実行用スクリプトの要否
-4. Parquet prefix のライフサイクル方針
-5. Parquet テーブルをいつ標準検索先へ切り替えるか
-6. 詳細確認シートで未確定事項を順に確定する
-
-補足:
+## 18. 補足
 - 詳細設計の確認シートは [parquet-etl-athena-design-checksheet.md](parquet-etl-athena-design-checksheet.md) を参照する。
+- 実装タスク分解は [parquet-etl-athena-implementation-tasks.md](parquet-etl-athena-implementation-tasks.md) を参照する。
