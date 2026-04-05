@@ -17,13 +17,15 @@ locals {
     local.account_root_principal_arn
   ]
 
-  ingest_role_name    = "${local.name_prefix}-ingest-role"
-  analyst_role_name   = "${local.name_prefix}-analyst-role"
-  terraform_role_name = "${local.name_prefix}-terraform-role"
+  ingest_role_name      = "${local.name_prefix}-ingest-role"
+  analyst_role_name     = "${local.name_prefix}-analyst-role"
+  parquet_etl_role_name = "${local.name_prefix}-parquet-etl-role"
+  terraform_role_name   = "${local.name_prefix}-terraform-role"
 
-  glue_catalog_arn  = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog"
-  glue_database_arn = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/${aws_glue_catalog_database.fw_log_analytics.name}"
-  glue_table_arn    = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.fw_log_analytics.name}/${aws_glue_catalog_table.fortigate_logs.name}"
+  glue_catalog_arn       = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog"
+  glue_database_arn      = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/${aws_glue_catalog_database.fw_log_analytics.name}"
+  glue_table_arn         = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.fw_log_analytics.name}/${aws_glue_catalog_table.fortigate_logs.name}"
+  glue_parquet_table_arn = "arn:${data.aws_partition.current.partition}:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.fw_log_analytics.name}/${aws_glue_catalog_table.fortigate_logs_parquet.name}"
 }
 
 data "aws_iam_policy_document" "ingest_assume_role" {
@@ -82,7 +84,8 @@ data "aws_iam_policy_document" "ingest_access" {
     resources = [
       local.glue_catalog_arn,
       local.glue_database_arn,
-      local.glue_table_arn
+      local.glue_table_arn,
+      local.glue_parquet_table_arn
     ]
   }
 }
@@ -213,6 +216,160 @@ resource "aws_iam_role_policy" "analyst_access" {
   name   = "${local.name_prefix}-analyst-access"
   role   = aws_iam_role.analyst.id
   policy = data.aws_iam_policy_document.analyst_access.json
+}
+
+data "aws_iam_policy_document" "parquet_etl_assume_role" {
+  statement {
+    sid     = "AllowLambdaServiceToAssumeParquetEtlRole"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "parquet_etl" {
+  name               = local.parquet_etl_role_name
+  assume_role_policy = data.aws_iam_policy_document.parquet_etl_assume_role.json
+  description        = "Role for running Athena-based Parquet ETL for firewall logs."
+}
+
+data "aws_iam_policy_document" "parquet_etl_access" {
+  statement {
+    sid       = "AllowStartQueryInEtlWorkgroup"
+    effect    = "Allow"
+    actions   = ["athena:StartQueryExecution"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "athena:WorkGroup"
+      values   = [local.athena_etl_workgroup_name]
+    }
+  }
+
+  statement {
+    sid    = "AllowQueryReadAndControlForEtl"
+    effect = "Allow"
+    actions = [
+      "athena:BatchGetQueryExecution",
+      "athena:GetQueryExecution",
+      "athena:GetQueryResults",
+      "athena:StopQueryExecution"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowReadConfiguredEtlWorkgroup"
+    effect = "Allow"
+    actions = [
+      "athena:GetWorkGroup"
+    ]
+    resources = [aws_athena_workgroup.fw_log_analytics_etl.arn]
+  }
+
+  statement {
+    sid    = "AllowReadGlueCatalogForRawAndParquet"
+    effect = "Allow"
+    actions = [
+      "glue:GetDatabase",
+      "glue:GetDatabases",
+      "glue:GetPartition",
+      "glue:GetPartitions",
+      "glue:GetTable",
+      "glue:GetTables"
+    ]
+    resources = [
+      local.glue_catalog_arn,
+      local.glue_database_arn,
+      local.glue_table_arn,
+      local.glue_parquet_table_arn
+    ]
+  }
+
+  statement {
+    sid    = "AllowListRelevantPrefixes"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket"
+    ]
+    resources = [aws_s3_bucket.log_bucket.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values = [
+        "fortigate/*",
+        "fortigate-parquet/*",
+        "${local.athena_etl_results_prefix}*"
+      ]
+    }
+  }
+
+  statement {
+    sid    = "AllowReadRawFortigateLogs"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject"
+    ]
+    resources = ["${aws_s3_bucket.log_bucket.arn}/fortigate/*"]
+  }
+
+  statement {
+    sid    = "AllowManageParquetObjects"
+    effect = "Allow"
+    actions = [
+      "s3:AbortMultipartUpload",
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:ListMultipartUploadParts",
+      "s3:PutObject"
+    ]
+    resources = ["${aws_s3_bucket.log_bucket.arn}/fortigate-parquet/*"]
+  }
+
+  statement {
+    sid    = "AllowReadWriteEtlAthenaResults"
+    effect = "Allow"
+    actions = [
+      "s3:AbortMultipartUpload",
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:ListMultipartUploadParts",
+      "s3:PutObject"
+    ]
+    resources = ["${aws_s3_bucket.log_bucket.arn}/${local.athena_etl_results_prefix}*"]
+  }
+
+  statement {
+    sid    = "AllowLambdaLogging"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowWriteLambdaLogStreams"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.parquet_etl_lambda_name}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "parquet_etl_access" {
+  name   = "${local.name_prefix}-parquet-etl-access"
+  role   = aws_iam_role.parquet_etl.id
+  policy = data.aws_iam_policy_document.parquet_etl_access.json
 }
 
 data "aws_iam_policy_document" "terraform_assume_role" {

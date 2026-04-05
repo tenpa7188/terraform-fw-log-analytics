@@ -9,6 +9,7 @@ locals {
   athena_etl_results_prefix   = "athena-results/etl/"
   athena_etl_results_location = "s3://${local.log_bucket_name}/${local.athena_etl_results_prefix}"
   athena_etl_workgroup_name   = "fw-log-analytics-etl-wg"
+  parquet_etl_lambda_name     = "${local.name_prefix}-parquet-etl-runner"
 
   common_tags = merge(
     {

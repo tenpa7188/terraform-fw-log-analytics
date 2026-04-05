@@ -1,6 +1,6 @@
 #
 # Purpose:
-#   Validate IAM responsibility boundaries for ingest / analyst / terraform
+#   Validate IAM responsibility boundaries for ingest / analyst / parquet_etl / terraform
 #   by using aws iam simulate-principal-policy against the Terraform-managed
 #   roles and resource names from the current state.
 #
@@ -11,8 +11,8 @@
 #
 [CmdletBinding()]
 param(
-  [ValidateSet("ingest", "analyst", "terraform")]
-  [string[]]$Role = @("ingest", "analyst", "terraform"),
+  [ValidateSet("ingest", "analyst", "parquet_etl", "terraform")]
+  [string[]]$Role = @("ingest", "analyst", "parquet_etl", "terraform"),
 
   [string]$TerraformDir = (Resolve-Path (Join-Path $Get-Location "..")).Path
 )
@@ -145,10 +145,14 @@ $bucketName = Get-OutputValue -Outputs $outputs -Name "log_bucket_name"
 $region = Get-OutputValue -Outputs $outputs -Name "aws_region"
 $glueDatabaseName = Get-OutputValue -Outputs $outputs -Name "glue_database_name"
 $glueTableName = Get-OutputValue -Outputs $outputs -Name "glue_table_name"
+$glueParquetTableName = Get-OutputValue -Outputs $outputs -Name "glue_parquet_table_name"
 $athenaWorkgroupName = Get-OutputValue -Outputs $outputs -Name "athena_workgroup_name"
 $athenaWorkgroupArn = Get-OutputValue -Outputs $outputs -Name "athena_workgroup_arn"
+$athenaEtlWorkgroupName = Get-OutputValue -Outputs $outputs -Name "athena_etl_workgroup_name"
+$athenaEtlWorkgroupArn = Get-OutputValue -Outputs $outputs -Name "athena_etl_workgroup_arn"
 $ingestRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_ingest_role_arn"
 $analystRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_analyst_role_arn"
+$parquetEtlRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_parquet_etl_role_arn"
 $terraformRoleArn = Get-OutputValue -Outputs $outputs -Name "iam_terraform_role_arn"
 
 if ($terraformRoleArn -notmatch "^arn:(?<partition>[^:]+):iam::(?<account_id>\d{12}):role/.+$") {
@@ -159,11 +163,14 @@ $partition = $Matches.partition
 $accountId = $Matches.account_id
 $bucketArn = "arn:${partition}:s3:::${bucketName}"
 $fortigateObjectArn = "$bucketArn/fortigate/year=2026/month=03/day=07/test.log"
+$fortigateParquetObjectArn = "$bucketArn/fortigate-parquet/year=2026/month=03/day=07/part-00000.snappy.parquet"
 $athenaResultObjectArn = "$bucketArn/athena-results/query-result.csv"
+$athenaEtlResultObjectArn = "$bucketArn/athena-results/etl/query-result.csv"
 $unrelatedBucketArn = "arn:${partition}:s3:::terraform-fw-log-analytics-unrelated-bucket"
 $glueCatalogArn = "arn:${partition}:glue:${region}:${accountId}:catalog"
 $glueDatabaseArn = "arn:${partition}:glue:${region}:${accountId}:database/${glueDatabaseName}"
 $glueTableArn = "arn:${partition}:glue:${region}:${accountId}:table/${glueDatabaseName}/${glueTableName}"
+$glueParquetTableArn = "arn:${partition}:glue:${region}:${accountId}:table/${glueDatabaseName}/${glueParquetTableName}"
 $unrelatedRoleArn = "arn:${partition}:iam::${accountId}:role/unrelated-test-role"
 
 $cases = @()
@@ -294,6 +301,105 @@ $cases += @(
     PolicySourceArn = $analystRoleArn
     ActionName      = "s3:PutObject"
     ResourceArns    = @($fortigateObjectArn)
+    Expected        = "implicitDeny"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can start query in ETL workgroup"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "athena:StartQueryExecution"
+    ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaEtlWorkgroupName))
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role cannot start query in standard workgroup"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "athena:StartQueryExecution"
+    ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaWorkgroupName))
+    Expected        = "implicitDeny"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can read ETL workgroup"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "athena:GetWorkGroup"
+    ResourceArns    = @($athenaEtlWorkgroupArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can read raw Glue table"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "glue:GetTable"
+    ResourceArns    = @($glueTableArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can read parquet Glue table"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "glue:GetTable"
+    ResourceArns    = @($glueParquetTableArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can read raw fortigate object"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:GetObject"
+    ResourceArns    = @($fortigateObjectArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can write parquet object"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:PutObject"
+    ResourceArns    = @($fortigateParquetObjectArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can delete parquet object"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:DeleteObject"
+    ResourceArns    = @($fortigateParquetObjectArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can write ETL athena results"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:PutObject"
+    ResourceArns    = @($athenaEtlResultObjectArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role cannot write raw fortigate object"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:PutObject"
+    ResourceArns    = @($fortigateObjectArn)
+    Expected        = "implicitDeny"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role cannot write standard athena results"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "s3:PutObject"
+    ResourceArns    = @($athenaResultObjectArn)
     Expected        = "implicitDeny"
   },
   @{

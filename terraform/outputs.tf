@@ -169,6 +169,16 @@ output "iam_analyst_role_arn" {
   value       = aws_iam_role.analyst.arn
 }
 
+output "iam_parquet_etl_role_name" {
+  description = "IAM role name for Athena-based Parquet ETL operations."
+  value       = aws_iam_role.parquet_etl.name
+}
+
+output "iam_parquet_etl_role_arn" {
+  description = "IAM role ARN for Athena-based Parquet ETL operations."
+  value       = aws_iam_role.parquet_etl.arn
+}
+
 output "iam_terraform_role_name" {
   description = "IAM role name for Terraform infrastructure operations."
   value       = aws_iam_role.terraform.name
