@@ -183,6 +183,7 @@
   - SQL は Lambda コードに埋め込まず、別ファイルで管理する
   - 例:
     - `sql/parquet/insert_daily.sql`
+    - `sql/parquet/quality_summary_daily.sql`
   - Lambda は SQL ファイルを読み込み、対象日パラメータを埋めて Athena に実行させる
 
 #### SQL テンプレート例
@@ -210,9 +211,38 @@ WHERE year = '2026'
 - partition 列 `year`, `month`, `day` は **SELECT の最後**に置く
 - Athena `INSERT INTO` は最大 100 パーティション制限があるため、**1 日単位で実行**する
 - 日次実行では 1 パーティションしか書かないため、制限に抵触しない  
+- 数値列 `srcport`, `dstport`, `proto`, `policyid` は `try_cast` で変換する
+- 必須列 `log_date`, `log_time`, `srcip`, `dstip` が欠損している行は Parquet へ入れない
 Sources:
 - [Use CTAS and INSERT INTO to work around the 100 partition limit](https://docs.aws.amazon.com/athena/latest/ug/ctas-insert-into.html)
 - [INSERT INTO - Amazon Athena](https://docs.aws.amazon.com/athena/latest/ug/insert-into.html)
+
+### 7.4 NG 検出の方針
+- reject / warning 専用テーブルは初期実装では作成しない
+- 代わりに、対象日ごとの品質サマリを Athena SQL で集計し、Lambda が CloudWatch Logs に出力する
+- 用語:
+  - `reject`
+    - 必須列 `log_date`, `log_time`, `srcip`, `dstip` が欠損しているため Parquet に入れない行
+  - `warning`
+    - 行自体は Parquet に入れるが、`try_cast` により数値列の一部が `NULL` になった行
+- 目的:
+  - Parquet 化を優先しつつ、NG 件数は後から確認できるようにする
+
+### 7.5 品質サマリ SQL
+- 方式:
+  - 対象日 1 日分の品質サマリを 1 行で返す `SELECT`
+- 管理ファイル:
+  - `sql/parquet/quality_summary_daily.sql`
+- 返却する主な項目:
+  - `raw_total_count`
+  - `reject_count`
+  - `insert_candidate_count`
+  - `warning_count`
+  - `invalid_srcport_count`
+  - `invalid_dstport_count`
+  - `invalid_proto_count`
+  - `invalid_policyid_count`
+- Lambda はこの結果を JSON 形式で CloudWatch Logs に記録する
 
 ## 8. 日次実行設計
 
@@ -235,10 +265,11 @@ Sources:
    - 既定は「前日」を起点に、直近 7 日を確認する
 3. Lambda が各日について raw データ有無を確認
 4. raw があり、Parquet 未作成の日を未処理日として抽出する
-5. 未処理日ごとに Parquet prefix を削除して再生成する
-6. Lambda が Athena `INSERT INTO` を実行する
-7. Lambda が Athena 完了状態を監視する
-8. 成功/失敗/skip を CloudWatch Logs に記録する
+5. Lambda が品質サマリ SQL を実行し、reject / warning 件数を取得する
+6. 未処理日ごとに Parquet prefix を削除して再生成する
+7. Lambda が Athena `INSERT INTO` を実行する
+8. Lambda が Athena 完了状態を監視する
+9. 成功/失敗/skip と品質サマリを CloudWatch Logs に記録する
 
 ### 8.3 実行時刻の考え方
 - syslog サーバ側の raw 投入と Glue パーティション登録が終わった後にする
@@ -310,6 +341,7 @@ Sources:
 ### 11.1 役割
 - 対象日決定
 - 前提チェック
+- 品質サマリ取得
 - Parquet prefix 削除
 - Athena クエリ実行
 - Athena 完了待ち
@@ -341,6 +373,12 @@ Sources:
 - Lambda を失敗終了にする
 - CloudWatch Logs へ詳細を残す
 - 必要に応じて再実行する
+
+### 11.4.1 品質ログの扱い
+- Lambda は ETL 実行前に `quality_summary_daily.sql` を実行する
+- 取得した件数は CloudWatch Logs に構造化ログとして残す
+- 初期実装では件数のみを残し、reject 行本体や warning 行本体は別テーブルに保存しない
+- 将来必要になった場合のみ、reject / warning 専用テーブルを追加検討する
 
 ### 11.5 初期ランタイム設定
 - runtime:

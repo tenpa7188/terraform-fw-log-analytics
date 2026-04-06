@@ -82,8 +82,10 @@
 - 対象:
   - 新規作成候補:
     - `sql/parquet/insert_daily.sql`
+    - `sql/parquet/quality_summary_daily.sql`
 - 実装内容:
   - raw から Parquet への日次変換 SQL
+  - reject / warning 件数を返す品質サマリ SQL
   - パラメータ埋め込み前提のテンプレート化
 - 確認方法:
   - Athena クエリ文字列として不整合がないことを確認
@@ -99,8 +101,10 @@
   - 対象日計算
   - 直近 7 日 catch-up 判定
   - raw / parquet prefix 存在確認
+  - 品質サマリ SQL 実行
   - dry-run 相当ログ出力
   - Athena 実行と完了待ち
+  - reject / warning 件数を CloudWatch Logs に出力
 - 確認方法:
   - Python 構文チェック
   - イベントサンプルでのロジック確認
