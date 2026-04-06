@@ -224,7 +224,8 @@ Sources:
   - `reject`
     - 必須列 `log_date`, `log_time`, `srcip`, `dstip` が欠損しているため Parquet に入れない行
   - `warning`
-    - 行自体は Parquet に入れるが、`try_cast` により数値列の一部が `NULL` になった行
+    - 行自体は Parquet に入れるが、数値列 `srcport`, `dstport`, `proto`, `policyid` のいずれかで
+      欠損または `try_cast` 失敗がある行
 - 目的:
   - Parquet 化を優先しつつ、NG 件数は後から確認できるようにする
 
@@ -238,11 +239,16 @@ Sources:
   - `reject_count`
   - `insert_candidate_count`
   - `warning_count`
+  - `missing_srcport_count`
   - `invalid_srcport_count`
+  - `missing_dstport_count`
   - `invalid_dstport_count`
+  - `missing_proto_count`
   - `invalid_proto_count`
+  - `missing_policyid_count`
   - `invalid_policyid_count`
 - Lambda はこの結果を JSON 形式で CloudWatch Logs に記録する
+- 将来、行単位の追跡が必要になった場合は reject / warning 専用テーブルを追加して拡張する
 
 ## 8. 日次実行設計
 
@@ -378,6 +384,7 @@ Sources:
 - Lambda は ETL 実行前に `quality_summary_daily.sql` を実行する
 - 取得した件数は CloudWatch Logs に構造化ログとして残す
 - 初期実装では件数のみを残し、reject 行本体や warning 行本体は別テーブルに保存しない
+- `warning_count` は数値列の `missing_*` と `invalid_*` の両方を含む
 - 将来必要になった場合のみ、reject / warning 専用テーブルを追加検討する
 
 ### 11.5 初期ランタイム設定

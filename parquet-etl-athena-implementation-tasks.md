@@ -86,6 +86,7 @@
 - 実装内容:
   - raw から Parquet への日次変換 SQL
   - reject / warning 件数を返す品質サマリ SQL
+  - `warning_count` に `missing_*` と `invalid_*` を含める
   - パラメータ埋め込み前提のテンプレート化
 - 確認方法:
   - Athena クエリ文字列として不整合がないことを確認
