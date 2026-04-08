@@ -1,13 +1,13 @@
 resource "aws_lambda_function" "parquet_etl_runner" {
-  filename         = "${path.module}/../lambda/parquet_etl_runner/function.zip"
+  filename         = "${path.module}/artifacts/parquet_etl_runner.zip"
   function_name    = local.parquet_etl_lambda_name
   role             = aws_iam_role.parquet_etl.arn
   handler          = "app.handler"
   runtime          = local.parquet_etl_lambda_runtime
   memory_size      = local.parquet_etl_lambda_memory
   timeout          = local.parquet_etl_lambda_timeout
-  source_code_hash = filebase64sha256("${path.module}/../lambda/parquet_etl_runner/function.zip")
-  description      = "Placeholder Lambda for Athena-based Parquet ETL orchestration."
+  source_code_hash = filebase64sha256("${path.module}/artifacts/parquet_etl_runner.zip")
+  description      = "Lambda for Athena-based Parquet ETL orchestration."
 
   environment {
     variables = {
