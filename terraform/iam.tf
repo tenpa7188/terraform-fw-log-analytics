@@ -117,16 +117,12 @@ resource "aws_iam_role" "analyst" {
 
 data "aws_iam_policy_document" "analyst_access" {
   statement {
-    sid       = "AllowStartQueryInStandardWorkgroup"
-    effect    = "Allow"
-    actions   = ["athena:StartQueryExecution"]
-    resources = ["*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "athena:WorkGroup"
-      values   = [local.athena_workgroup_name]
-    }
+    sid     = "AllowStartQueryInStandardWorkgroup"
+    effect  = "Allow"
+    actions = ["athena:StartQueryExecution"]
+    resources = [
+      aws_athena_workgroup.fw_log_analytics.arn
+    ]
   }
 
   statement {
@@ -239,16 +235,12 @@ resource "aws_iam_role" "parquet_etl" {
 
 data "aws_iam_policy_document" "parquet_etl_access" {
   statement {
-    sid       = "AllowStartQueryInEtlWorkgroup"
-    effect    = "Allow"
-    actions   = ["athena:StartQueryExecution"]
-    resources = ["*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "athena:WorkGroup"
-      values   = [local.athena_etl_workgroup_name]
-    }
+    sid     = "AllowStartQueryInEtlWorkgroup"
+    effect  = "Allow"
+    actions = ["athena:StartQueryExecution"]
+    resources = [
+      aws_athena_workgroup.fw_log_analytics_etl.arn
+    ]
   }
 
   statement {
@@ -513,3 +505,4 @@ resource "aws_iam_role_policy" "terraform_access" {
   role   = aws_iam_role.terraform.id
   policy = data.aws_iam_policy_document.terraform_access.json
 }
+

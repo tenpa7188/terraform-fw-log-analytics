@@ -250,6 +250,7 @@ $cases += @(
     Name            = "analyst role can start query in project workgroup"
     PolicySourceArn = $analystRoleArn
     ActionName      = "athena:StartQueryExecution"
+    ResourceArns    = @($athenaWorkgroupArn)
     ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaWorkgroupName))
     Expected        = "allowed"
   },
@@ -259,6 +260,7 @@ $cases += @(
     Name            = "analyst role cannot start query in default workgroup"
     PolicySourceArn = $analystRoleArn
     ActionName      = "athena:StartQueryExecution"
+    ResourceArns    = @($athenaWorkgroupArn)
     ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @("primary"))
     Expected        = "implicitDeny"
   },
@@ -313,6 +315,7 @@ $cases += @(
     Name            = "parquet etl role can start query in ETL workgroup"
     PolicySourceArn = $parquetEtlRoleArn
     ActionName      = "athena:StartQueryExecution"
+    ResourceArns    = @($athenaEtlWorkgroupArn)
     ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaEtlWorkgroupName))
     Expected        = "allowed"
   },
@@ -322,6 +325,7 @@ $cases += @(
     Name            = "parquet etl role cannot start query in standard workgroup"
     PolicySourceArn = $parquetEtlRoleArn
     ActionName      = "athena:StartQueryExecution"
+    ResourceArns    = @($athenaEtlWorkgroupArn)
     ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaWorkgroupName))
     Expected        = "implicitDeny"
   },
@@ -501,3 +505,4 @@ if ($failedResults) {
 
 Write-Host ""
 Write-Host "All IAM simulator tests passed." -ForegroundColor Green
+
