@@ -325,7 +325,7 @@ $cases += @(
     Name            = "parquet etl role cannot start query in standard workgroup"
     PolicySourceArn = $parquetEtlRoleArn
     ActionName      = "athena:StartQueryExecution"
-    ResourceArns    = @($athenaEtlWorkgroupArn)
+    ResourceArns    = @($athenaWorkgroupArn)
     ContextEntries  = @(New-ContextEntry -Name "athena:WorkGroup" -Values @($athenaWorkgroupName))
     Expected        = "implicitDeny"
   },
@@ -505,4 +505,5 @@ if ($failedResults) {
 
 Write-Host ""
 Write-Host "All IAM simulator tests passed." -ForegroundColor Green
+
 
