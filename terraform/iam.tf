@@ -167,10 +167,18 @@ data "aws_iam_policy_document" "analyst_access" {
   }
 
   statement {
+    sid    = "AllowGetQueryBucketLocation"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation"
+    ]
+    resources = [aws_s3_bucket.log_bucket.arn]
+  }
+
+  statement {
     sid    = "AllowListQueryPrefixes"
     effect = "Allow"
     actions = [
-      "s3:GetBucketLocation",
       "s3:ListBucket"
     ]
     resources = [aws_s3_bucket.log_bucket.arn]
@@ -284,10 +292,18 @@ data "aws_iam_policy_document" "parquet_etl_access" {
   }
 
   statement {
+    sid    = "AllowGetRelevantBucketLocation"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation"
+    ]
+    resources = [aws_s3_bucket.log_bucket.arn]
+  }
+
+  statement {
     sid    = "AllowListRelevantPrefixes"
     effect = "Allow"
     actions = [
-      "s3:GetBucketLocation",
       "s3:ListBucket"
     ]
     resources = [aws_s3_bucket.log_bucket.arn]
