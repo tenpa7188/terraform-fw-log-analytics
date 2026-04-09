@@ -292,6 +292,20 @@ data "aws_iam_policy_document" "parquet_etl_access" {
   }
 
   statement {
+    sid    = "AllowCreateParquetPartitionsInGlue"
+    effect = "Allow"
+    actions = [
+      "glue:BatchCreatePartition",
+      "glue:CreatePartition"
+    ]
+    resources = [
+      local.glue_catalog_arn,
+      local.glue_database_arn,
+      local.glue_parquet_table_arn
+    ]
+  }
+
+  statement {
     sid    = "AllowGetRelevantBucketLocation"
     effect = "Allow"
     actions = [

@@ -359,6 +359,24 @@ $cases += @(
   @{
     Role            = "parquet_etl"
     Category        = "permissions"
+    Name            = "parquet etl role can create parquet Glue partition"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "glue:CreatePartition"
+    ResourceArns    = @($glueCatalogArn, $glueDatabaseArn, $glueParquetTableArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
+    Name            = "parquet etl role can batch create parquet Glue partition"
+    PolicySourceArn = $parquetEtlRoleArn
+    ActionName      = "glue:BatchCreatePartition"
+    ResourceArns    = @($glueCatalogArn, $glueDatabaseArn, $glueParquetTableArn)
+    Expected        = "allowed"
+  },
+  @{
+    Role            = "parquet_etl"
+    Category        = "permissions"
     Name            = "parquet etl role can read raw fortigate object"
     PolicySourceArn = $parquetEtlRoleArn
     ActionName      = "s3:GetObject"
