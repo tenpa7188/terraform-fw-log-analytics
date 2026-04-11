@@ -97,6 +97,8 @@ class ParquetEtlRunnerTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "SKIPPED")
         self.assertEqual(result["message"], "raw data has not arrived yet")
+        self.assertIn("timing_ms", result)
+        self.assertIn("target_total_ms", result["timing_ms"])
         log_mock.assert_called_once()
 
     def test_process_target_date_skips_when_parquet_already_exists(self):
@@ -117,6 +119,8 @@ class ParquetEtlRunnerTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "SKIPPED")
         self.assertEqual(result["message"], "parquet data already exists for target date")
+        self.assertIn("timing_ms", result)
+        self.assertIn("target_total_ms", result["timing_ms"])
         log_mock.assert_called_once()
 
     def test_process_target_date_rebuild_deletes_and_inserts(self):
@@ -139,11 +143,27 @@ class ParquetEtlRunnerTests(unittest.TestCase):
             "invalid_policyid_count": 0,
             "warning_count": 1,
         }
+        quality_query = {
+            "query_execution_id": "quality-query",
+            "wall_clock_ms": 1200,
+            "total_execution_ms": 1100,
+            "engine_execution_ms": 900,
+            "query_queue_ms": 100,
+            "data_scanned_bytes": 12345,
+        }
+        insert_query = {
+            "query_execution_id": "insert-query",
+            "wall_clock_ms": 2400,
+            "total_execution_ms": 2300,
+            "engine_execution_ms": 2100,
+            "query_queue_ms": 150,
+            "data_scanned_bytes": 67890,
+        }
 
         with (
             patch.object(parquet_app, "_prefix_has_objects", side_effect=[True, True, True]),
             patch.object(parquet_app, "_load_sql_template", side_effect=["quality __YEAR__", "insert __YEAR__"]),
-            patch.object(parquet_app, "_start_and_wait_athena_query", side_effect=["quality-query", "insert-query"]),
+            patch.object(parquet_app, "_start_and_wait_athena_query", side_effect=[quality_query, insert_query]),
             patch.object(parquet_app, "_get_quality_summary", return_value=quality_summary),
             patch.object(parquet_app, "_delete_prefix_objects", return_value=3) as delete_mock,
             patch.object(parquet_app, "_log_structured") as log_mock,
@@ -161,8 +181,48 @@ class ParquetEtlRunnerTests(unittest.TestCase):
         self.assertEqual(result["quality_summary"], quality_summary)
         self.assertEqual(result["quality_summary_query_execution_id"], "quality-query")
         self.assertEqual(result["insert_query_execution_id"], "insert-query")
+        self.assertEqual(result["quality_summary_query"], quality_query)
+        self.assertEqual(result["insert_query"], insert_query)
+        self.assertIn("timing_ms", result)
+        self.assertIn("target_total_ms", result["timing_ms"])
         delete_mock.assert_called_once()
         self.assertEqual(log_mock.call_count, 2)
+
+    def test_build_query_summary_extracts_athena_statistics(self):
+        query_execution = {
+            "QueryExecutionId": "query-123",
+            "WorkGroup": "fw-log-analytics-etl-wg",
+            "StatementType": "DML",
+            "Status": {
+                "State": "SUCCEEDED",
+                "StateChangeReason": "",
+            },
+            "ResultConfiguration": {
+                "OutputLocation": "s3://example-bucket/athena-results/etl/query-123.csv",
+            },
+            "Statistics": {
+                "TotalExecutionTimeInMillis": 3100,
+                "EngineExecutionTimeInMillis": 2500,
+                "QueryQueueTimeInMillis": 300,
+                "ServicePreProcessingTimeInMillis": 100,
+                "ServiceProcessingTimeInMillis": 200,
+                "QueryPlanningTimeInMillis": 400,
+                "DataScannedInBytes": 987654,
+            },
+        }
+
+        result = parquet_app._build_query_summary(
+            query_execution=query_execution,
+            wall_clock_ms=3200,
+        )
+
+        self.assertEqual(result["query_execution_id"], "query-123")
+        self.assertEqual(result["workgroup_name"], "fw-log-analytics-etl-wg")
+        self.assertEqual(result["wall_clock_ms"], 3200)
+        self.assertEqual(result["total_execution_ms"], 3100)
+        self.assertEqual(result["engine_execution_ms"], 2500)
+        self.assertEqual(result["query_queue_ms"], 300)
+        self.assertEqual(result["data_scanned_bytes"], 987654)
 
     def test_get_quality_summary_parses_athena_result_rows(self):
         athena = MagicMock()

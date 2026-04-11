@@ -47,6 +47,7 @@ class AppConfig:
 def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
     # Lambda の入口。
     # mode に応じて対象日を決め、対象日ごとの ETL を順番に実行する。
+    handler_started_at = time.perf_counter()
     config = AppConfig.from_env()
     payload = event or {}
     mode = str(payload.get("mode", "daily")).strip().lower()
@@ -78,6 +79,9 @@ def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
                 "target_date": target_date.isoformat(),
                 "status": "FAILED",
                 "message": str(exc),
+                "timing_ms": {
+                    "handler_total_ms": _elapsed_ms(handler_started_at),
+                },
             }
             _log_structured(failure)
             raise
@@ -90,6 +94,9 @@ def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
         "skipped_dates": [item["target_date"] for item in results if item["status"] == "SKIPPED"],
         "result_count": len(results),
         "results": results,
+        "timing_ms": {
+            "handler_total_ms": _elapsed_ms(handler_started_at),
+        },
     }
     _log_structured(summary)
 
@@ -113,12 +120,17 @@ def _process_target_date(
     # 2. quality summary 取得
     # 3. rebuild のときだけ parquet 削除
     # 4. insert_daily.sql 実行
-    # 5. 結果を構造化ログとして出力
+    # 5. 処理時間と Athena 統計を結果へ載せる
+    target_started_at = time.perf_counter()
     raw_prefix = _date_prefix(config.raw_prefix_root, target_date)
     parquet_prefix = _date_prefix(config.parquet_prefix_root, target_date)
 
+    prefix_check_started_at = time.perf_counter()
     raw_exists = _prefix_has_objects(s3=s3, bucket=config.log_bucket_name, prefix=raw_prefix)
     parquet_exists_before = _prefix_has_objects(s3=s3, bucket=config.log_bucket_name, prefix=parquet_prefix)
+    timing_ms = {
+        "prefix_checks_ms": _elapsed_ms(prefix_check_started_at),
+    }
 
     base_result = {
         "event_type": "parquet_etl_result",
@@ -136,6 +148,10 @@ def _process_target_date(
                 **base_result,
                 "status": "SKIPPED",
                 "message": "raw data has not arrived yet",
+                "timing_ms": {
+                    **timing_ms,
+                    "target_total_ms": _elapsed_ms(target_started_at),
+                },
             }
             _log_structured(result)
             return result
@@ -147,6 +163,10 @@ def _process_target_date(
             **base_result,
             "status": "SKIPPED",
             "message": "parquet data already exists for target date",
+            "timing_ms": {
+                **timing_ms,
+                "target_total_ms": _elapsed_ms(target_started_at),
+            },
         }
         _log_structured(result)
         return result
@@ -155,15 +175,18 @@ def _process_target_date(
         _load_sql_template("quality_summary_daily.sql"),
         target_date=target_date,
     )
-    quality_query_id = _start_and_wait_athena_query(
+    quality_query = _start_and_wait_athena_query(
         athena=athena,
         sql_text=quality_sql,
         database_name=config.glue_database_name,
         workgroup_name=config.athena_workgroup_name,
     )
-    quality_summary = _get_quality_summary(athena=athena, query_execution_id=quality_query_id)
+    quality_summary_fetch_started_at = time.perf_counter()
+    quality_summary = _get_quality_summary(athena=athena, query_execution_id=quality_query["query_execution_id"])
+    timing_ms["quality_summary_fetch_ms"] = _elapsed_ms(quality_summary_fetch_started_at)
 
     deleted_object_count = 0
+    timing_ms["delete_existing_parquet_ms"] = 0
     if mode == "rebuild":
         # 削除前に、どの prefix を消す予定かをログに残す。
         # 誤った日付を再生成していないかを後で確認しやすくするため。
@@ -175,32 +198,40 @@ def _process_target_date(
                 "message": "deleting existing parquet prefix before rebuild",
             }
         )
+        delete_started_at = time.perf_counter()
         deleted_object_count = _delete_prefix_objects(
             s3=s3,
             bucket=config.log_bucket_name,
             prefix=parquet_prefix,
         )
+        timing_ms["delete_existing_parquet_ms"] = _elapsed_ms(delete_started_at)
 
     insert_sql = _render_sql(
         _load_sql_template("insert_daily.sql"),
         target_date=target_date,
     )
-    insert_query_id = _start_and_wait_athena_query(
+    insert_query = _start_and_wait_athena_query(
         athena=athena,
         sql_text=insert_sql,
         database_name=config.glue_database_name,
         workgroup_name=config.athena_workgroup_name,
     )
+    post_insert_prefix_check_started_at = time.perf_counter()
     parquet_exists_after = _prefix_has_objects(s3=s3, bucket=config.log_bucket_name, prefix=parquet_prefix)
+    timing_ms["post_insert_prefix_check_ms"] = _elapsed_ms(post_insert_prefix_check_started_at)
+    timing_ms["target_total_ms"] = _elapsed_ms(target_started_at)
 
     result = {
         **base_result,
         "status": "SUCCEEDED",
-        "quality_summary_query_execution_id": quality_query_id,
-        "insert_query_execution_id": insert_query_id,
+        "quality_summary_query_execution_id": quality_query["query_execution_id"],
+        "insert_query_execution_id": insert_query["query_execution_id"],
+        "quality_summary_query": quality_query,
+        "insert_query": insert_query,
         "deleted_object_count": deleted_object_count,
         "parquet_exists_after": parquet_exists_after,
         "quality_summary": quality_summary,
+        "timing_ms": timing_ms,
     }
     _log_structured(result)
     return result
@@ -298,9 +329,10 @@ def _start_and_wait_athena_query(
     sql_text: str,
     database_name: str,
     workgroup_name: str,
-) -> str:
+) -> dict[str, Any]:
     # Athena クエリを開始し、完了するまでポーリングで待機する。
     # 今回は設計どおり、Lambda が完了待ちする A 案を採用している。
+    query_started_at = time.perf_counter()
     start_response = athena.start_query_execution(
         QueryString=sql_text,
         QueryExecutionContext={"Database": database_name},
@@ -310,16 +342,45 @@ def _start_and_wait_athena_query(
 
     while True:
         response = athena.get_query_execution(QueryExecutionId=query_execution_id)
-        status = response["QueryExecution"]["Status"]["State"]
+        execution = response["QueryExecution"]
+        status = execution["Status"]["State"]
 
         if status == "SUCCEEDED":
-            return query_execution_id
+            return _build_query_summary(
+                query_execution=execution,
+                wall_clock_ms=_elapsed_ms(query_started_at),
+            )
 
         if status in {"FAILED", "CANCELLED"}:
-            reason = response["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
+            reason = execution["Status"].get("StateChangeReason", "unknown")
             raise RuntimeError(f"Athena query {query_execution_id} ended with {status}: {reason}")
 
         time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _build_query_summary(*, query_execution: dict[str, Any], wall_clock_ms: int) -> dict[str, Any]:
+    # Athena が返す内部統計を、CloudWatch Logs で追いやすい形へ寄せる。
+    # Lambda の待ち時間と Athena 側の実処理時間を見比べるために使う。
+    statistics = query_execution.get("Statistics", {})
+    status = query_execution.get("Status", {})
+    result_configuration = query_execution.get("ResultConfiguration", {})
+
+    return {
+        "query_execution_id": query_execution.get("QueryExecutionId", ""),
+        "workgroup_name": query_execution.get("WorkGroup", ""),
+        "statement_type": query_execution.get("StatementType", ""),
+        "status": status.get("State", ""),
+        "state_change_reason": status.get("StateChangeReason", ""),
+        "result_output_location": result_configuration.get("OutputLocation", ""),
+        "wall_clock_ms": wall_clock_ms,
+        "total_execution_ms": int(statistics.get("TotalExecutionTimeInMillis", 0)),
+        "engine_execution_ms": int(statistics.get("EngineExecutionTimeInMillis", 0)),
+        "query_queue_ms": int(statistics.get("QueryQueueTimeInMillis", 0)),
+        "service_preprocessing_ms": int(statistics.get("ServicePreProcessingTimeInMillis", 0)),
+        "service_processing_ms": int(statistics.get("ServiceProcessingTimeInMillis", 0)),
+        "planning_ms": int(statistics.get("QueryPlanningTimeInMillis", 0)),
+        "data_scanned_bytes": int(statistics.get("DataScannedInBytes", 0)),
+    }
 
 
 def _get_quality_summary(*, athena: Any, query_execution_id: str) -> dict[str, Any]:
@@ -362,6 +423,11 @@ def _row_to_values(row: dict[str, Any]) -> list[str]:
 def _to_int(value: str) -> int:
     # Athena 結果は文字列で返るため、件数系を int に寄せる。
     return int(value) if value else 0
+
+
+def _elapsed_ms(started_at: float) -> int:
+    # perf_counter ベースで経過時間をミリ秒へ丸める。
+    return int((time.perf_counter() - started_at) * 1000)
 
 
 def _log_structured(payload: dict[str, Any]) -> None:
