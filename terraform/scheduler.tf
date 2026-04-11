@@ -39,7 +39,7 @@ resource "aws_scheduler_schedule" "parquet_etl_daily" {
   description                  = "Daily scheduler for Athena-based Parquet ETL catch-up execution."
   schedule_expression          = local.parquet_etl_schedule_cron
   schedule_expression_timezone = local.parquet_etl_schedule_tz
-  state                        = "ENABLED"
+  state                        = local.parquet_etl_schedule_state
 
   flexible_time_window {
     mode = "OFF"
@@ -53,3 +53,4 @@ resource "aws_scheduler_schedule" "parquet_etl_daily" {
     })
   }
 }
+

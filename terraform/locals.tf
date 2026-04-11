@@ -18,6 +18,7 @@ locals {
   parquet_etl_schedule_role   = "${local.name_prefix}-parquet-etl-scheduler-role"
   parquet_etl_schedule_cron   = "cron(0 8 * * ? *)"
   parquet_etl_schedule_tz     = "Asia/Tokyo"
+  parquet_etl_schedule_state  = "DISABLED"
 
   common_tags = merge(
     {
