@@ -18,6 +18,8 @@ param(
 
   [int]$CliConnectTimeoutSeconds = 60,
 
+  [switch]$IncludeQualitySummary,
+
   [switch]$DryRun
 )
 
@@ -97,12 +99,18 @@ function Get-DateRangeInclusive {
 function New-BackfillPayloadJson {
   param(
     [Parameter(Mandatory = $true)]
-    [datetime]$TargetDate
+    [datetime]$TargetDate,
+
+    [switch]$IncludeQualitySummary
   )
 
   $payload = [ordered]@{
     mode        = "backfill"
     target_date = $TargetDate.ToString("yyyy-MM-dd")
+  }
+
+  if ($IncludeQualitySummary) {
+    $payload.include_quality_summary = $true
   }
 
   return ($payload | ConvertTo-Json -Compress)
@@ -124,11 +132,13 @@ function Invoke-BackfillForDate {
 
     [int]$ConnectTimeoutSeconds,
 
+    [switch]$IncludeQualitySummary,
+
     [switch]$IsDryRun
   )
 
   $targetDateText = $TargetDate.ToString("yyyy-MM-dd")
-  $payloadJson = New-BackfillPayloadJson -TargetDate $TargetDate
+  $payloadJson = New-BackfillPayloadJson -TargetDate $TargetDate -IncludeQualitySummary:$IncludeQualitySummary
 
   Write-Host ""
   Write-Host "==> Backfill target date: $targetDateText"
@@ -150,13 +160,8 @@ function Invoke-BackfillForDate {
   $tempPayloadPath = Join-Path -Path $tempDirectory -ChildPath ("payload-" + $tempFileName)
 
   try {
-    # PowerShell から JSON 文字列をそのまま aws.exe へ渡すと、
-    # 引用符が崩れて InvalidRequestContentException になることがある。
-    # そのため payload は一時 JSON ファイルへ保存し、fileb:// で渡す。
     [System.IO.File]::WriteAllText($tempPayloadPath, $payloadJson, (New-Object System.Text.UTF8Encoding($false)))
 
-    # aws lambda invoke は payload を event として Lambda へ渡す。
-    # 今回は同期実行で結果を待ち、失敗した日で止める設計にしている。
     $cliArgs = @(
       "lambda",
       "invoke",
@@ -232,7 +237,6 @@ function Invoke-BackfillForDate {
   }
 }
 
-# 実行前に必要コマンドの存在を確認する。
 Assert-CommandAvailable -CommandName "aws"
 
 $start = $StartDate.Date
@@ -242,7 +246,6 @@ if ($start -gt $end) {
   throw "StartDate must be earlier than or equal to EndDate."
 }
 
-# FunctionName 未指定時は Terraform output から現在の Lambda 名を取得する。
 $requestedTerraformDir = $TerraformDir
 if ([string]::IsNullOrWhiteSpace($requestedTerraformDir)) {
   $requestedTerraformDir = Join-Path (Split-Path -Parent $PSCommandPath) "..\terraform"
@@ -272,6 +275,7 @@ foreach ($targetDate in $targetDates) {
     -AwsProfile $Profile `
     -ReadTimeoutSeconds $CliReadTimeoutSeconds `
     -ConnectTimeoutSeconds $CliConnectTimeoutSeconds `
+    -IncludeQualitySummary:$IncludeQualitySummary `
     -IsDryRun:$DryRun
 
   $results.Add($result)
@@ -284,6 +288,3 @@ Write-Host "Processed count : $($results.Count)"
 if ($DryRun) {
   Write-Host "Dry-run only. No Lambda execution was performed."
 }
-
-
-

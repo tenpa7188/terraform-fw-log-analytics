@@ -79,6 +79,16 @@ class ParquetEtlRunnerTests(unittest.TestCase):
                 lookback_days=7,
             )
 
+    def test_resolve_include_quality_summary_defaults_to_false(self):
+        self.assertFalse(parquet_app._resolve_include_quality_summary(payload={}))
+
+    def test_resolve_include_quality_summary_accepts_true_string(self):
+        self.assertTrue(
+            parquet_app._resolve_include_quality_summary(
+                payload={"include_quality_summary": "true"},
+            )
+        )
+
     def test_process_target_date_skips_daily_when_raw_not_arrived(self):
         athena = MagicMock()
         s3 = MagicMock()
@@ -93,6 +103,7 @@ class ParquetEtlRunnerTests(unittest.TestCase):
                 config=self.config,
                 mode="daily",
                 target_date=date(2026, 4, 7),
+                include_quality_summary=False,
             )
 
         self.assertEqual(result["status"], "SKIPPED")
@@ -115,12 +126,51 @@ class ParquetEtlRunnerTests(unittest.TestCase):
                 config=self.config,
                 mode="backfill",
                 target_date=date(2026, 4, 7),
+                include_quality_summary=False,
             )
 
         self.assertEqual(result["status"], "SKIPPED")
         self.assertEqual(result["message"], "parquet data already exists for target date")
         self.assertIn("timing_ms", result)
         self.assertIn("target_total_ms", result["timing_ms"])
+        log_mock.assert_called_once()
+
+    def test_process_target_date_skips_quality_summary_when_disabled(self):
+        athena = MagicMock()
+        s3 = MagicMock()
+        insert_query = {
+            "query_execution_id": "insert-query",
+            "wall_clock_ms": 2400,
+            "total_execution_ms": 2300,
+            "engine_execution_ms": 2100,
+            "query_queue_ms": 150,
+            "data_scanned_bytes": 67890,
+        }
+
+        with (
+            patch.object(parquet_app, "_prefix_has_objects", side_effect=[True, False, True]),
+            patch.object(parquet_app, "_load_sql_template", return_value="insert __YEAR__"),
+            patch.object(parquet_app, "_start_and_wait_athena_query", return_value=insert_query),
+            patch.object(parquet_app, "_get_quality_summary") as get_quality_summary_mock,
+            patch.object(parquet_app, "_log_structured") as log_mock,
+        ):
+            result = parquet_app._process_target_date(
+                athena=athena,
+                s3=s3,
+                config=self.config,
+                mode="backfill",
+                target_date=date(2026, 4, 7),
+                include_quality_summary=False,
+            )
+
+        self.assertEqual(result["status"], "SUCCEEDED")
+        self.assertFalse(result["quality_summary_enabled"])
+        self.assertIsNone(result["quality_summary_query_execution_id"])
+        self.assertIsNone(result["quality_summary_query"])
+        self.assertIsNone(result["quality_summary"])
+        self.assertEqual(result["insert_query_execution_id"], "insert-query")
+        self.assertEqual(result["timing_ms"]["quality_summary_fetch_ms"], 0)
+        get_quality_summary_mock.assert_not_called()
         log_mock.assert_called_once()
 
     def test_process_target_date_rebuild_deletes_and_inserts(self):
@@ -174,9 +224,11 @@ class ParquetEtlRunnerTests(unittest.TestCase):
                 config=self.config,
                 mode="rebuild",
                 target_date=date(2026, 4, 7),
+                include_quality_summary=True,
             )
 
         self.assertEqual(result["status"], "SUCCEEDED")
+        self.assertTrue(result["quality_summary_enabled"])
         self.assertEqual(result["deleted_object_count"], 3)
         self.assertEqual(result["quality_summary"], quality_summary)
         self.assertEqual(result["quality_summary_query_execution_id"], "quality-query")

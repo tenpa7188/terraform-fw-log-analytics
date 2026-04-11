@@ -51,6 +51,7 @@ def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
     config = AppConfig.from_env()
     payload = event or {}
     mode = str(payload.get("mode", "daily")).strip().lower()
+    include_quality_summary = _resolve_include_quality_summary(payload=payload)
 
     if mode not in {"daily", "backfill", "rebuild"}:
         raise ValueError(f"Unsupported mode '{mode}'.")
@@ -70,11 +71,13 @@ def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
                 config=config,
                 mode=mode,
                 target_date=target_date,
+                include_quality_summary=include_quality_summary,
             )
             results.append(result)
         except Exception as exc:
             failure = {
                 "event_type": "parquet_etl_result",
+                "include_quality_summary": include_quality_summary,
                 "mode": mode,
                 "target_date": target_date.isoformat(),
                 "status": "FAILED",
@@ -88,6 +91,7 @@ def handler(event: dict[str, Any] | None, _context: Any) -> dict[str, Any]:
 
     summary = {
         "event_type": "parquet_etl_run_summary",
+        "include_quality_summary": include_quality_summary,
         "mode": mode,
         "status": "SUCCEEDED",
         "processed_dates": [item["target_date"] for item in results if item["status"] == "SUCCEEDED"],
@@ -113,11 +117,12 @@ def _process_target_date(
     config: AppConfig,
     mode: str,
     target_date: date,
+    include_quality_summary: bool,
 ) -> dict[str, Any]:
     # 1日分の ETL 本体。
     # 流れは次の通り。
     # 1. raw / parquet の存在確認
-    # 2. quality summary 取得
+    # 2. quality summary 取得（必要なときだけ）
     # 3. rebuild のときだけ parquet 削除
     # 4. insert_daily.sql 実行
     # 5. 処理時間と Athena 統計を結果へ載せる
@@ -140,6 +145,7 @@ def _process_target_date(
         "parquet_prefix": parquet_prefix,
         "raw_exists": raw_exists,
         "parquet_exists_before": parquet_exists_before,
+        "quality_summary_enabled": include_quality_summary,
     }
 
     if not raw_exists:
@@ -171,19 +177,23 @@ def _process_target_date(
         _log_structured(result)
         return result
 
-    quality_sql = _render_sql(
-        _load_sql_template("quality_summary_daily.sql"),
-        target_date=target_date,
-    )
-    quality_query = _start_and_wait_athena_query(
-        athena=athena,
-        sql_text=quality_sql,
-        database_name=config.glue_database_name,
-        workgroup_name=config.athena_workgroup_name,
-    )
-    quality_summary_fetch_started_at = time.perf_counter()
-    quality_summary = _get_quality_summary(athena=athena, query_execution_id=quality_query["query_execution_id"])
-    timing_ms["quality_summary_fetch_ms"] = _elapsed_ms(quality_summary_fetch_started_at)
+    quality_query: dict[str, Any] | None = None
+    quality_summary: dict[str, Any] | None = None
+    timing_ms["quality_summary_fetch_ms"] = 0
+    if include_quality_summary:
+        quality_sql = _render_sql(
+            _load_sql_template("quality_summary_daily.sql"),
+            target_date=target_date,
+        )
+        quality_query = _start_and_wait_athena_query(
+            athena=athena,
+            sql_text=quality_sql,
+            database_name=config.glue_database_name,
+            workgroup_name=config.athena_workgroup_name,
+        )
+        quality_summary_fetch_started_at = time.perf_counter()
+        quality_summary = _get_quality_summary(athena=athena, query_execution_id=quality_query["query_execution_id"])
+        timing_ms["quality_summary_fetch_ms"] = _elapsed_ms(quality_summary_fetch_started_at)
 
     deleted_object_count = 0
     timing_ms["delete_existing_parquet_ms"] = 0
@@ -224,7 +234,7 @@ def _process_target_date(
     result = {
         **base_result,
         "status": "SUCCEEDED",
-        "quality_summary_query_execution_id": quality_query["query_execution_id"],
+        "quality_summary_query_execution_id": quality_query["query_execution_id"] if quality_query else None,
         "insert_query_execution_id": insert_query["query_execution_id"],
         "quality_summary_query": quality_query,
         "insert_query": insert_query,
@@ -249,6 +259,28 @@ def _resolve_target_dates(*, mode: str, payload: dict[str, Any], lookback_days: 
         raise ValueError(f"target_date is required for mode '{mode}'.")
 
     return [_parse_target_date(target_date_raw)]
+
+
+def _resolve_include_quality_summary(*, payload: dict[str, Any]) -> bool:
+    # 品質サマリは通常運用では重いため、明示指定したときだけ有効にする。
+    raw_value = payload.get("include_quality_summary")
+    if raw_value is None:
+        return False
+
+    if isinstance(raw_value, bool):
+        return raw_value
+
+    if isinstance(raw_value, int) and raw_value in {0, 1}:
+        return bool(raw_value)
+
+    if isinstance(raw_value, str):
+        normalized = raw_value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+
+    raise ValueError("include_quality_summary must be a boolean-compatible value.")
 
 
 def _parse_target_date(value: str) -> date:
