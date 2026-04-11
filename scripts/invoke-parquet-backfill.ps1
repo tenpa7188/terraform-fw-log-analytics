@@ -14,6 +14,10 @@ param(
 
   [string]$Profile,
 
+  [int]$CliReadTimeoutSeconds = 900,
+
+  [int]$CliConnectTimeoutSeconds = 60,
+
   [switch]$DryRun
 )
 
@@ -116,6 +120,10 @@ function Invoke-BackfillForDate {
 
     [string]$AwsProfile,
 
+    [int]$ReadTimeoutSeconds,
+
+    [int]$ConnectTimeoutSeconds,
+
     [switch]$IsDryRun
   )
 
@@ -159,7 +167,11 @@ function Invoke-BackfillForDate {
       "--payload",
       ("fileb://" + $tempPayloadPath),
       "--output",
-      "json"
+      "json",
+      "--cli-read-timeout",
+      $ReadTimeoutSeconds.ToString(),
+      "--cli-connect-timeout",
+      $ConnectTimeoutSeconds.ToString()
     )
 
     if (-not [string]::IsNullOrWhiteSpace($AwsRegion)) {
@@ -258,6 +270,8 @@ foreach ($targetDate in $targetDates) {
     -ResolvedFunctionName $resolvedFunctionName `
     -AwsRegion $Region `
     -AwsProfile $Profile `
+    -ReadTimeoutSeconds $CliReadTimeoutSeconds `
+    -ConnectTimeoutSeconds $CliConnectTimeoutSeconds `
     -IsDryRun:$DryRun
 
   $results.Add($result)
