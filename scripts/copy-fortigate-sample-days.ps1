@@ -1,3 +1,5 @@
+# Example: powershell -ExecutionPolicy Bypass -File .\scripts\copy-fortigate-sample-days.ps1 -BucketName <log-bucket-name> -SourceKey "fortigate/year=2026/month=03/day=16/traffic-1000000.log.gz" -StartDate 2026-03-16 -TotalDays 365 -Execute
+# Dry-run : powershell -ExecutionPolicy Bypass -File .\scripts\copy-fortigate-sample-days.ps1 -BucketName <log-bucket-name> -SourceKey "fortigate/year=2026/month=03/day=16/traffic-1000000.log.gz" -StartDate 2026-03-16 -TotalDays 365
 param(
   [Parameter(Mandatory = $true)]
   [string]$BucketName,
