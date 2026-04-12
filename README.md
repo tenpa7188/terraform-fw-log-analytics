@@ -1,19 +1,22 @@
 # terraform-fw-log-analytics
 
-FortiGate を想定した FW ログを S3 に保管し、Glue Data Catalog と Athena で検索できるようにする Terraform プロジェクトです。
+FortiGate を想定した FW ログを S3 に保管し、Glue Data Catalog と Athena で検索できるようにする Terraform プロジェクトです。  
+現在は raw ログを原本として保持しつつ、Athena ベースの ETL で Parquet を生成し、標準検索は Parquet、障害時や生ログ確認は raw を使う構成です。
 
 ## 背景と課題
 
 - syslog サーバで FW ログ検索をしており、検索対象のログが多いと検索完了まで時間がかかる
-- 現場では `grep` や一部ログ抽出を組み合わせて調査しており、担当者ごとに検索手順や観点が異なる
+- 現場では `zgrep` や一部ログ抽出を組み合わせて調査しており、担当者ごとに検索手順や観点が異なる
 - その結果、検索速度、再現性、引き継ぎやすさに課題がある
-- 現行の MVP は検索手順の標準化と再現性確保を優先しており、**大量ログ検索の速度課題そのものはまだ完全には解決していない**
+- ~~現行の MVP は検索手順の標準化と再現性確保を優先しており、**大量ログ検索の速度課題そのものはまだ完全には解決していない**~~
+- Parquet 化 ETL を導入し、Athena 標準検索では raw 比でスキャン量・実行時間の改善を確認済み
 
 ## このプロジェクトで解決したいこと
 
 - 検索を高速化する
   - S3 に保管したログを Athena で検索し、`grep` ベースの属人的な調査より再現しやすい状態にする
-  - ただし、現行の `text + gzip + RegexSerDe` 構成では、検索速度は未改善、抜本改善は将来の Parquet 化などで継続対応する
+  - ~~`text + gzip + RegexSerDe` 構成では、検索速度は未改善であり、抜本改善は将来の Parquet 化で継続対応する~~
+  - 現在は raw から Parquet を日次生成し、標準検索を Parquet に寄せることで検索性能を改善している
 - 検索手順を標準化する
   - SQL テンプレートと Runbook を用意し、担当者ごとのやり方の差を減らす
 - ログを安全かつ低コストで保管する
@@ -22,28 +25,74 @@ FortiGate を想定した FW ログを S3 に保管し、Glue Data Catalog と A
 ## 作成する AWS リソース
 
 - S3 バケット
-  - FortiGate ログ保管用
-  - Athena クエリ結果保管用プレフィックスを同一バケット内に作成
+  - FortiGate raw ログ保管用: `fortigate/`
+  - Parquet ログ保管用: `fortigate-parquet/`
+  - Athena クエリ結果保管用プレフィックス: `athena-results/`
+  - Athena ETL クエリ結果保管用プレフィックス: `athena-results/etl/`
 - Glue Data Catalog
   - Database: `fw_log_analytics`
-  - Table: `fortigate_logs`
+  - raw Table: `fortigate_logs`
+  - Parquet Table: `fortigate_logs_parquet`
 - Athena
-  - WorkGroup: `fw-log-analytics-wg`
+  - 標準検索 WorkGroup: `fw-log-analytics-wg`
+  - ETL WorkGroup: `fw-log-analytics-etl-wg`
+- Lambda
+  - `parquet-etl-runner`
+- EventBridge Scheduler
+  - 日次 ETL 起動用
+  - 現在の設定状態は `DISABLED`
 - IAM
   - `ingest` ロール
   - `analyst` ロール
+  - `parquet_etl` ロール
+  - `parquet_etl_scheduler` ロール
   - `terraform` ロール
   - 必要に応じて `ingest` 専用 IAM ユーザー
 
 ## アーキテクチャ概要
 
 ```text
-FortiGate / syslogサーバ
-  -> S3 (fortigate/year=YYYY/month=MM/day=DD/)
-  -> Glue Data Catalog
-  -> Athena WorkGroup
-  -> SQL templates / Runbook
+[FortiGate]
+    |
+    v
+[syslogサーバ]
+  - traffic ログを raw prefix へアップロード
+  - raw Glue パーティション登録
+    |
+    v
+[S3 raw]
+  s3://<bucket>/fortigate/year=YYYY/month=MM/day=DD/*.log.gz
+    |
+    v
+[Glue raw table]
+  fw_log_analytics.fortigate_logs
+    |
+    v
+[Lambda: parquet-etl-runner]
+  - raw から Parquet を生成
+  - Athena ETL WorkGroup を利用
+    |
+    v
+[S3 parquet]
+  s3://<bucket>/fortigate-parquet/year=YYYY/month=MM/day=DD/
+    |
+    v
+[Glue parquet table]
+  fw_log_analytics.fortigate_logs_parquet
+    |
+    v
+[Athena standard search]
+  - 標準検索: Parquet
+  - フォールバック: raw
 ```
+
+## 現在の標準運用
+
+- syslogサーバが raw ログを `fortigate/` 配下へアップロードし、raw パーティションを登録する
+- ETL は `parquet-etl-runner` が raw から Parquet を生成する
+- 標準検索は `fw_log_analytics.fortigate_logs_parquet` を使う
+- `HIVE_BAD_DATA`、抽出漏れ確認、`raw_line` 確認は `fw_log_analytics.fortigate_logs` を使う
+- 手動実行は backfill / rebuild 用 PowerShell スクリプトから行える
 
 ## ディレクトリ構成
 
@@ -51,12 +100,16 @@ FortiGate / syslogサーバ
   - Terraform 本体
 - [terraform/envs](terraform/envs)
   - 環境別 tfvars
+- [lambda](lambda)
+  - Athena ベース Parquet ETL Lambda 実装
+- [sql](sql)
+  - ETL SQL と性能比較 SQL テンプレート
 - [runbook](runbook)
   - 検索手順と SQL テンプレート
 - [samples](samples)
   - ダミー FortiGate ログ
 - [scripts](scripts)
-  - syslogサーバ側の補助スクリプトや rsyslog 設定
+  - syslogサーバ側の補助スクリプト、Parquet ETL 補助スクリプト、性能比較スクリプト
 
 ## 前提条件
 
@@ -94,7 +147,7 @@ fortigate_retention_days                 = 365
 fortigate_noncurrent_retention_days      = 30
 athena_results_retention_days            = 30
 athena_results_noncurrent_retention_days = 7
-athena_bytes_scanned_cutoff_per_query    = 10737418240
+athena_bytes_scanned_cutoff_per_query    = 107374182400
 create_ingest_iam_user                   = true
 create_ingest_iam_access_key             = false
 ```
@@ -106,6 +159,7 @@ create_ingest_iam_access_key             = false
   - syslogサーバ などの AWS 外ホストで AWS CLI を使う場合だけ有効化する
   - 公開リポジトリの既定値は `false` とし、不要な長期アクセスキーを作らない
   - アクセスキーのシークレットは Terraform state に保存されるため、本番では扱いに注意する
+- EventBridge Scheduler に ETL 化の日次実行設定はあるが、設定状態は `DISABLED` なので日次実行設定したい場合は、  [locals.tf](terraform/locals.tf) の `parquet_etl_schedule_state` を `ENABLED` に変更が必要
 
 ### 3. `terraform init`
 
@@ -151,10 +205,11 @@ terraform plan -var-file="envs/dev.tfvars"
 
 確認すべき点:
 - S3 バケット
-- Glue Database / Table
-- Athena WorkGroup
+- Glue Database / raw Table / Parquet Table
+- Athena 標準検索 WorkGroup / ETL WorkGroup
+- Lambda / EventBridge Scheduler
 - IAM ロール
-- `create_ingest_iam_user = true` の場合は IAM ユーザーとアクセスキー
+  - `create_ingest_iam_user = true` の場合は IAM ユーザーとアクセスキー
 
 ### 6. `terraform apply`
 
@@ -185,8 +240,12 @@ terraform output
 確認対象:
 - `log_bucket_name`
 - `athena_workgroup_name`
+- `athena_etl_workgroup_name`
 - `glue_database_name`
 - `glue_table_name`
+- `glue_parquet_table_name`
+- `parquet_etl_lambda_function_name`
+- `parquet_etl_schedule_name`
 - `iam_ingest_role_arn`
 - `iam_ingest_user_name`
 - `iam_ingest_user_access_key_id`
@@ -206,9 +265,15 @@ terraform output -raw iam_ingest_user_secret_access_key
   - `fw-log-analytics-<env>-<random>` 形式のバケットが作成されていること
 - Glue
   - Database `fw_log_analytics`
-  - Table `fortigate_logs`
+  - raw Table `fortigate_logs`
+  - Parquet Table `fortigate_logs_parquet`
 - Athena
-  - WorkGroup `fw-log-analytics-wg`
+  - 標準検索 WorkGroup `fw-log-analytics-wg`
+  - ETL WorkGroup `fw-log-analytics-etl-wg`
+- Lambda
+  - `parquet-etl-runner`
+- EventBridge Scheduler
+  - 日次 ETL スケジュールが存在すること
 
 ## サンプルログでの確認
 
@@ -224,6 +289,27 @@ terraform output -raw iam_ingest_user_secret_access_key
 関連ドキュメント:
 - [sql-templates.md](runbook/sql-templates.md)
 - [athena-search.md](runbook/athena-search.md)
+
+## 性能比較
+
+- 1日 / 30日 / 365日 を対象に、raw / Parquet の比較を実施済み
+- 比較条件は `srcip` / `dstip` / `action=deny` / `count(*)` の 4 系統を raw / Parquet で同条件に揃えている
+- 比較結果として、Parquet 標準検索で raw 比のスキャン量・実行時間改善を確認済み
+- 詳細な比較値は README ではなく、実行結果 CSV と運用メモで確認する
+
+参考:
+- ~~raw text ベースの Athena 検索では、zgrep 比で 1日分は `+3059%`、30日分は `+168%` と、zgrep の方が速かった~~
+- Parquet 化後に、`total_count` を除く `srcip` / `dstip` / `action=deny` の 3 系統平均で zgrep と比較すると、Athena の方が速いことを確認済み
+
+| 条件 | zgrep 実行時間 | Athena 実行時間平均 | Athena 改善比（対 zgrep） | 結果 |
+| --- | --- | --- | --- | --- |
+| 100万行・1ファイル(1日分) | 3.37 sec | 0.82 sec | 72.8% 短縮 | Athena Parquet の方が速い |
+| 100万行・30ファイル(1ヶ月分) | 1 min 52 sec | 2.16 sec | 98.1% 短縮 | Athena Parquet の方が大幅に速い |
+| 100万行・365ファイル(1年分) | 28 min 39 sec | 9.57 sec | 99.4% 短縮 | Athena Parquet の方が大幅に速い |
+
+補足:
+- Athena 実行時間平均は `artifacts/athena-performance/performance-summary.csv` の `srcip` / `dstip` / `action=deny` の中央値を平均した値
+- `count(*)` は集計特性が異なるため、この zgrep 比較には含めていない
 
 ## syslogサーバ側の補助ファイル
 
@@ -297,7 +383,6 @@ terraform destroy -var-file="envs/dev.tfvars"
 
 ## 今後の拡張候補
 
-- Parquet 変換による Athena コスト最適化
 - event ログ用の別テーブル追加
+- reject / warning の追跡強化
 - Terraform modules 化
-
