@@ -63,7 +63,7 @@
     v
 [Athena WorkGroup: fw-log-analytics-wg]
   - 強制出力先: s3://.../athena-results/
-  - スキャン上限: 変数化（既定 10GB/クエリ）
+  - スキャン上限: 変数化（既定 20GB/クエリ）
     |
     v
 [利用者]
@@ -378,7 +378,7 @@ terraform apply -var-file=envs/dev.tfvars
 - 課金はスキャン量依存のため、`year/month/day` 条件を必須化する
 - `.log.gz` 圧縮保存を標準とする
 - WorkGroup でスキャン上限を設定する
-  - 既定: `10GB/クエリ`
+  - 既定: `20GB/クエリ`
 - 初回検索は `LIMIT` と狭い期間で対象確認する
 - 現行の `text + gzip + RegexSerDe` は低コスト重視であり、低遅延検索を最優先にした構成ではない
 

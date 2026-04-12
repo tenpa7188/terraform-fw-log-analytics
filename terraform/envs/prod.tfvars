@@ -11,6 +11,6 @@ fortigate_retention_days                 = 365
 fortigate_noncurrent_retention_days      = 30
 athena_results_retention_days            = 30
 athena_results_noncurrent_retention_days = 7
-athena_bytes_scanned_cutoff_per_query    = 107374182400
+athena_bytes_scanned_cutoff_per_query    = 21474836480
 create_ingest_iam_user                   = false
 create_ingest_iam_access_key             = false
